@@ -12,7 +12,8 @@
 #' @importFrom tidyselect tidyselect_data_has_predicates
 #' @importFrom dplyr tbl collect tibble same_src compute as_tibble group_vars
 #' @importFrom dplyr sample_n sample_frac slice_sample select tbl_ptype group_by
-#' @importFrom purrr map_lgl map_chr map pmap_chr
+#' @importFrom dplyr filter mutate
+#' @importFrom purrr map_lgl map_chr map pmap_chr imap
 #' @importFrom rlang enquo `!!` `!!!` quo_is_null sym arg_match warn abort `%||%`
 #' @importFrom rlang is_string is_character as_utf8_character parse_exprs
 #' @importFrom methods new is setOldClass
@@ -21,6 +22,7 @@
 #' @importFrom tidyr pivot_longer
 #' @importFrom vctrs vec_as_names
 #' @importFrom processx process
+#' @importFrom rstudioapi jobRunScript
 #' @import reticulate
 #' @import dbplyr
 #' @import httr2

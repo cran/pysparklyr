@@ -2,7 +2,7 @@
 spark_connect_method.spark_method_spark_connect <- function(
     x,
     method,
-    master = NULL,
+    master,
     spark_home,
     config,
     app_name,
@@ -36,55 +36,30 @@ spark_connect_method.spark_method_databricks_connect <- function(
   py_spark_connect(master = master, method = method, config = config, ...)
 }
 
-
-py_spark_connect <- function(master,
-                             token = Sys.getenv("DATABRICKS_TOKEN"),
-                             cluster_id = NULL,
-                             method = "",
-                             envname = NULL,
-                             spark_version = NULL,
-                             dbr_version = NULL,
-                             config = list()) {
+py_spark_connect <- function(
+    master,
+    token = Sys.getenv("DATABRICKS_TOKEN"),
+    cluster_id = NULL,
+    method = "",
+    envname = NULL,
+    spark_version = NULL,
+    dbr_version = NULL,
+    config = list(),
+    host_sanitize = TRUE
+    ) {
   method <- method[[1]]
 
   conn <- NULL
 
-  if (method == "spark_connect") {
-    if (is.null(envname)) {
-      env_base <- "r-sparklyr-pyspark-"
-      envs <- find_environments(env_base)
-      if (length(envs) == 0) {
-        cli_div(theme = cli_colors())
-        cli_abort(c(
-          paste0("{.header No environment name provided, and }",
-                 "{.header  no environment was automatically identified.}"),
-          "Run {.run pysparklyr::install_pyspark()} to install."), call = NULL)
-        cli_end()
-      } else {
-        if (!is.null(spark_version)) {
-          sp_version <- version_prep(spark_version)
-          envname <- glue("{env_base}{sp_version}")
-          matched <- envs[envs == envname]
-          if (length(matched) == 0) {
-            envname <- envs[[1]]
-            cli_div(theme = cli_colors())
-            cli_alert_warning(paste(
-              "{.header A Python environment with a matching version was not found}",
-              "* {.header Will attempt connecting using }{.emph '{envname}'}",
-              paste0(
-                "* {.header To install the proper Python environment use:}",
-                " {.run pysparklyr::install_pyspark(version = \"{sp_version}\")}"
-              ), sep = "\n"))
-            cli_end()
-          } else {
-            envname <- matched
-          }
-        } else {
-          envname <- envs[[1]]
-        }
-      }
-    }
+  envname <- use_envname(
+    method = method,
+    version = spark_version %||% dbr_version,
+    envname = envname,
+    messages = TRUE,
+    match_first = TRUE
+  )
 
+  if (method == "spark_connect") {
     pyspark <- import_check("pyspark", envname)
     pyspark_sql <- pyspark$sql
     conn <- pyspark_sql$SparkSession$builder$remote(master)
@@ -95,33 +70,9 @@ py_spark_connect <- function(master,
   if (method == "databricks_connect") {
     cluster_id <- cluster_id %||% Sys.getenv("DATABRICKS_CLUSTER_ID")
     master <- master %||% Sys.getenv("DATABRICKS_HOST")
-    if (is.null(dbr_version)) {
-      dbr <- cluster_dbr_version(
-        cluster_id = cluster_id,
-        host = master,
-        token = token
-      )
-    } else {
-      dbr <- version_prep(dbr_version)
-    }
 
-    env_base <- "r-sparklyr-databricks-"
-    envname <- glue("{env_base}{dbr}")
-    envs <- find_environments(env_base)
-    matched <- envs[envs == envname]
-    if (length(matched) == 0) {
-      envname <- envs[[1]]
-      cli_div(theme = cli_colors())
-      cli_alert_warning(paste(
-        "{.header A Python environment with a matching version was not found}",
-        "* {.header Will attempt connecting using }{.emph '{envname}'}",
-        paste0(
-          "* {.header To install the proper Python environment use:}",
-          " {.run pysparklyr::install_databricks(version = \"{dbr}\")}"
-        ),
-        sep = "\n"
-      ))
-      cli_end()
+    if(host_sanitize) {
+      master <- sanitize_host(master)
     }
 
     db <- import_check("databricks.connect", envname)
@@ -143,7 +94,19 @@ py_spark_connect <- function(master,
     master_label <- glue("{cluster_name} ({cluster_id})")
   }
 
-  session <- conn$getOrCreate() # pyspark.sql.connect.session.SparkSession
+  warnings <- import("warnings")
+  warnings$filterwarnings(
+    "ignore",
+    message = "is_datetime64tz_dtype is deprecated",
+    module = "pyspark"
+  )
+  warnings$filterwarnings(
+    "ignore",
+    message = "is_categorical_dtype is deprecated",
+    module = "pyspark"
+  )
+
+  session <- conn$getOrCreate()
   get_version <- try(session$version, silent = TRUE)
   if (inherits(get_version, "try-error")) cluster_dbr_error(get_version)
   session$conf$set("spark.sql.session.localRelationCacheThreshold", 1048576L)
@@ -233,7 +196,6 @@ build_user_agent <- function() {
   )
 }
 
-
 cluster_dbr_version <- function(cluster_id,
                                 host = Sys.getenv("DATABRICKS_HOST"),
                                 token = Sys.getenv("DATABRICKS_TOKEN")) {
@@ -241,6 +203,7 @@ cluster_dbr_version <- function(cluster_id,
   cli_alert_warning(
     "{.header Retrieving version from cluster }{.emph '{cluster_id}'}"
   )
+  cli_end()
 
   cluster_info <- cluster_dbr_info(
     cluster_id = cluster_id,
@@ -250,7 +213,7 @@ cluster_dbr_version <- function(cluster_id,
 
   sp_version <- cluster_info$spark_version
 
-  if(!is.null(sp_version)) {
+  if (!is.null(sp_version)) {
     sp_sep <- unlist(strsplit(sp_version, "\\."))
     version <- paste0(sp_sep[1], ".", sp_sep[2])
     cli_alert_success("{.header Cluster version: }{.emph '{version}'}")
@@ -276,7 +239,35 @@ cluster_dbr_info <- function(cluster_id,
       resp_body_json(),
     silent = TRUE
   )
-  if(inherits(out, "try-error")) {
+  if (inherits(out, "try-error")) {
+    cli_div(theme = cli_colors())
+    invalid_host <- NULL
+    invalid_token <- NULL
+    invalid_cluster <- NULL
+    invalid_msg <- " <<--- Possibly invalid"
+    if (grepl("HTTP 404 Not Found", out)) {
+      parse_host <- url_parse(host)
+      invalid_host <- invalid_msg
+      if (!is.null(parse_host$path)) {
+        invalid_host <- glue(
+          "<<--- Likely cause, last part in the URL: \"{parse_host$path}\""
+        )
+      }
+    }
+    if (grepl("HTTP 401 Unauthorized", out)) {
+      invalid_token <- invalid_msg
+    }
+    if (grepl("HTTP 400 Bad Request", out)) {
+      invalid_cluster <- invalid_msg
+    }
+    cli_abort(c(
+      invalid_host,
+      "{.header Issues connecting to Databricks. Currently using: }",
+      "{.header |-- Host: }{.emph '{host}' {invalid_host}}",
+      "{.header |-- Cluster ID: }{.emph '{cluster_id}' {invalid_cluster}}",
+      "{.header |-- Token: }{.emph '<REDACTED>' {invalid_token}}",
+      "{.header Error message:} {.class \"{out}\"}"
+    ))
     out <- list()
   }
   out
@@ -284,7 +275,7 @@ cluster_dbr_info <- function(cluster_id,
 
 
 find_environments <- function(x) {
-  conda_names <- conda_list()$name
+  conda_names <- tryCatch(conda_list()$name, error = function(e) character())
   ve_names <- virtualenv_list()
   all_names <- c(ve_names, conda_names)
   sub_names <- substr(all_names, 1, nchar(x))
@@ -294,36 +285,142 @@ find_environments <- function(x) {
 }
 
 cluster_dbr_error <- function(error) {
-    error_split <- error %>%
-      as.character() %>%
-      strsplit("\n\t") %>%
-      unlist()
+  error_split <- error %>%
+    as.character() %>%
+    strsplit("\n\t") %>%
+    unlist()
 
-    error_start <- substr(error_split, 1, 9)
+  error_start <- substr(error_split, 1, 9)
 
-    status_error <- NULL
-    if (any(error_start == "status = ")) {
-      status_error <- error_split[error_start == "status = "]
-    }
+  status_error <- NULL
+  if (any(error_start == "status = ")) {
+    status_error <- error_split[error_start == "status = "]
+  }
 
-    status_details <- NULL
-    if (any(error_start == "details =")) {
-      status_details <- error_split[error_start == "details ="]
-    }
+  status_details <- NULL
+  if (any(error_start == "details =")) {
+    status_details <- error_split[error_start == "details ="]
+  }
 
-    status_tip <- NULL
-    if (grepl("UNAVAILABLE", status_error)) {
-      status_tip <- "Possible cause = The cluster is not running, or not accessible"
+  status_tip <- NULL
+  if (grepl("UNAVAILABLE", status_error)) {
+    status_tip <- "Possible cause = The cluster is not running, or not accessible"
+  }
+  if (grepl("FAILED_PRECONDITION", status_error)) {
+    status_tip <- "Possible cause = The cluster is initializing. Try again later"
+  }
+  rlang::abort(
+    c(
+      "Spark connection error",
+      status_tip,
+      status_error,
+      status_details
+    )
+  )
+}
+
+sanitize_host <-  function(url) {
+  parsed_url <- url_parse(url)
+  new_url <- url_parse("http://localhost")
+  if(is.null(parsed_url$scheme)) {
+    new_url$scheme <- "https"
+    if(!is.null(parsed_url$path) && is.null(parsed_url$hostname)) {
+      new_url$hostname <- parsed_url$path
     }
-    if (grepl("FAILED_PRECONDITION", status_error)) {
-      status_tip <- "Possible cause = The cluster is initializing. Try again later"
-    }
-    rlang::abort(
-      c(
-        "Spark connection error",
-        status_tip,
-        status_error,
-        status_details
+  } else {
+    new_url$scheme <- parsed_url$scheme
+    new_url$hostname <- parsed_url$hostname
+  }
+  ret <- url_build(new_url)
+  if(ret != url) {
+    cli_div(theme = cli_colors())
+    cli_alert_warning(
+      c("{.header Sanitizing {.code Host} value:}\n",
+        "{.header * Original:} {.emph {url}}\n",
+        "{.header * Using:}    {.emph {ret}}\n",
+        "* {.header ",
+        "To prevent {.code sparklyr} from changing the Host, set ",
+        "{.code host_sanitize = FALSE} in {.code spark_connect()}",
+        "}"
       )
     )
+    cli_end()
+  }
+  ret
+}
+
+use_envname <- function(
+    envname = NULL,
+    method = "spark_connect",
+    version = "1.1",
+    messages = FALSE,
+    match_first = FALSE
+    ) {
+
+  reticulate_python <- Sys.getenv("RETICULATE_PYTHON", unset = NA)
+  if (!is.na(reticulate_python)) {
+    if(messages) {
+      msg <- c(
+        "{.header Using the Python environment defined in the}",
+        "{.emph 'RETICULATE_PYTHON' }{.header environment variable}",
+        "{.class ({py_exe()})}"
+      )
+      cli_div(theme = cli_colors())
+      cli_alert_warning(msg)
+      cli_end()
+    }
+    envname <- reticulate_python
+  }
+
+  if (is.null(envname)) {
+    if(method == "spark_connect") {
+      env_base <- "r-sparklyr-pyspark-"
+      run_code <- glue(
+        "pysparklyr::install_pyspark(version = \"{version}\")"
+        )
+    } else {
+      env_base <- "r-sparklyr-databricks-"
+      run_code <- glue(
+        "pysparklyr::install_databricks(version = \"{version}\")"
+      )
+    }
+    envs <- find_environments(env_base)
+    if (length(envs) == 0) {
+      if(messages) {
+        cli_div(theme = cli_colors())
+        cli_abort(
+          c(
+            "{.header No environment name provided, and no environment was automatically identified.}",
+            "* {.header Run: {.run {run_code}} to install.}"
+            ))
+        cli_end()
+      }
+    } else {
+      if (!is.null(version)) {
+        sp_version <- version_prep(version)
+        envname <- glue("{env_base}{sp_version}")
+        matched <- envs[envs == envname]
+        if(match_first) {
+          if (length(matched) == 0) {
+            envname <- envs[[1]]
+            if(messages) {
+              cli_div(theme = cli_colors())
+              cli_alert_warning(paste(
+                "{.header A Python environment with a matching version was not found}",
+                "* {.header Will attempt connecting using }{.emph '{envname}'}",
+                "* {.header To install the proper Python environment use: {.run {run_code}}}",
+                sep = "\n"
+              ))
+              cli_end()
+            }
+          } else {
+            envname <- matched
+          }
+        }
+      } else {
+        envname <- envs[[1]]
+      }
+    }
+  }
+  envname
 }

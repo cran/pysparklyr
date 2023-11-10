@@ -5,58 +5,13 @@ spark_ide_objects.pyspark_connection <- function(
     schema = NULL,
     name = NULL,
     type = NULL) {
-  df_catalogs <- data.frame()
-  df_databases <- data.frame()
-  df_tables <- data.frame()
-  df_cat <- data.frame()
-
-  limit <- as.numeric(
-    Sys.getenv("SPARKLYR_CONNECTION_OBJECT_LIMIT", unset = 100)
+  catalog_python(
+    con = con,
+    catalog = catalog,
+    schema = schema,
+    name = name,
+    type = type
   )
-
-  sc_catalog <- python_conn(con)$catalog
-  current_catalog <- sc_catalog$currentCatalog()
-  if (is.null(catalog)) {
-    sc_catalog$setCurrentCatalog("spark_catalog")
-    tables <- sc_catalog$listTables(dbName = "default")
-    if (length(tables) > 0) {
-      temps <- tables[map_lgl(tables, ~ .x$isTemporary)]
-      df_tables <- temps %>%
-        rs_tables()
-    }
-
-    catalogs <- sc_catalog$listCatalogs()
-    if (length(catalogs) > 0) {
-      df_catalogs <- data.frame(name = map_chr(catalogs, ~ .x$name))
-      df_catalogs$type <- "catalog"
-    }
-    comb <- rbind(df_tables, df_catalogs)
-    out <- head(comb, limit)
-  } else {
-    sc_catalog$setCurrentCatalog(catalog)
-    if (is.null(schema)) {
-      databases <- sc_catalog$listDatabases()
-      df_databases <- data.frame(name = map_chr(databases, ~ .x$name))
-      df_databases$type <- "schema"
-      out <- head(df_databases, limit)
-    } else {
-      tables <- sc_catalog$listTables(dbName = schema)
-      if (length(tables) > 0) {
-        catalogs <- map(tables, ~ .x$catalog == catalog)
-        catalogs <- map_lgl(catalogs, ~ ifelse(length(.x), .x, FALSE))
-        tables <- tables[catalogs]
-
-        schemas <- map(tables, ~ .x$namespace == schema)
-        schemas <- map_lgl(schemas, ~ ifelse(length(.x), .x, FALSE))
-        tables <- tables[schemas]
-        df_tables <- rs_tables(tables)
-      }
-      out <- head(df_tables, limit)
-    }
-  }
-
-  sc_catalog$setCurrentCatalog(current_catalog)
-  out
 }
 
 #' @export
@@ -90,19 +45,86 @@ spark_ide_preview.pyspark_connection <- function(
   collect(head(tbl_df, rowLimit))
 }
 
+catalog_python <- function(
+    con,
+    catalog = NULL,
+    schema = NULL,
+    name = NULL,
+    type = NULL) {
+  df_catalogs <- data.frame()
+  df_tables <- data.frame()
+
+  limit <- as.numeric(
+    Sys.getenv("SPARKLYR_CONNECTION_OBJECT_LIMIT", unset = NA)
+  )
+  sc_catalog <- python_conn(con)$catalog
+  if (is.null(catalog) && is.null(schema)) {
+    catalogs <- dbGetQuery(con, "show catalogs")
+    if (nrow(catalogs) > 0) {
+      out <- data.frame(name = catalogs$catalog, type = "catalog")
+    }
+    if (!is.na(limit)) {
+      out <- head(out, limit)
+    }
+  } else {
+    if (is.null(schema)) {
+      out <- rs_get_databases(con, limit, catalog)
+    } else {
+      if (is.null(catalog)) {
+        sql_schema <- "show tables in {schema}"
+      } else {
+        sql_schema <- "show tables in {catalog}.{schema}"
+      }
+      tables <- dbGetQuery(con, glue(sql_schema))
+      out <- df_tables
+      if (nrow(tables) > 0) {
+        tables <- tables[!tables$isTemporary, ]
+        if (nrow(tables) > 0) {
+          out <- data.frame(
+            name = tables$tableName,
+            schema = schema,
+            type = "table"
+          )
+          out$catalog <- catalog
+        }
+      }
+      if (!is.na(limit)) {
+        out <- head(out, limit)
+      }
+    }
+  }
+  out
+}
+
+rs_get_databases <- function(con, limit = NA, catalog = NULL) {
+  out <- data.frame()
+  if (!is.null(catalog)) {
+    databases <- dbGetQuery(con, glue("show databases in {catalog}"))
+  } else {
+    databases <- dbGetQuery(con, glue("show databases"))
+  }
+  if (nrow(databases) > 0) {
+    db_names <- databases$databaseName %||% databases$namespace
+    out <- data.frame(name = db_names, type = "schema")
+    if (!is.na(limit)) {
+      out <- head(out, limit)
+    }
+  }
+  out
+}
+
 rs_get_table <- function(con, catalog, schema, table) {
-  context <- python_conn(con)
-  if (is.null(catalog)) {
-    catalog <- context$catalog$currentCatalog()
+  from <- NULL
+  if (!is.null(catalog)) {
+    from <- in_catalog(catalog, schema, table)
   }
-  if (is.null(schema)) {
-    schema <- context$catalog$currentDatabase()
+  if (!is.null(schema) && is.null(from)) {
+    from <- in_schema(schema, table)
   }
-  x <- in_catalog(catalog, schema, table)
-  if (!context$catalog$tableExists(as.sql(x, con$con))) {
-    x <- table
+  if (is.null(from)) {
+    from <- table
   }
-  tbl(con, x)
+  tbl(con, from)
 }
 
 rs_type <- function(x) {
@@ -122,15 +144,4 @@ rs_vals <- function(x) {
     x <- paste0(x, "...")
   }
   x
-}
-
-rs_tables <- function(x) {
-  out <- data.frame()
-  if (length(x) > 0) {
-    table_names <- map_chr(x, ~ .x$name)
-    final_names <- table_names[!grepl(temp_prefix(), table_names)]
-    out <- data.frame(name = final_names)
-    out$type <- "table"
-  }
-  out
 }
