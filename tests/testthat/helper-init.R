@@ -3,14 +3,19 @@
 .test_env$lr_model <- NULL
 .test_env$env <- NULL
 .test_env$started <- NULL
+.test_env$dbr <- NULL
 
 use_test_env <- function() {
   if (is.null(.test_env$env)) {
-    base <- fs::path_expand("~/test-spark")
-    .test_env$env <- fs::path(base, random_table_name("env"))
-    fs::dir_create(.test_env$env)
+    .test_env$env <- use_new_test_env()
   }
   .test_env$env
+}
+
+use_new_test_env <- function() {
+  base <- fs::path_expand("~/test-spark")
+  x <- fs::path(base, random_table_name("env"))
+  fs::dir_create(x)
 }
 
 use_test_version_spark <- function() {
@@ -85,7 +90,7 @@ use_test_python_environment <- function() {
     new = c("WORKON_HOME" = use_test_env()),
     {
       version <- use_test_version_spark()
-      env <- use_envname(method = "spark_connect", version = version)
+      env <- use_envname(backend = "pyspark", version = version)
       env_avail <- names(env)
       target <- path(use_test_env(), env)
       if (!dir_exists(target)) {
@@ -97,7 +102,7 @@ use_test_python_environment <- function() {
             python = Sys.which("python"),
             install_ml = FALSE
           )
-          env <- use_envname(method = "spark_connect", version = version)
+          env <- use_envname(backend = "pyspark", version = version)
         }
       }
     }

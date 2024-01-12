@@ -1,6 +1,16 @@
 databricks_host <- function(host = NULL, fail = TRUE) {
-  host <- host %||% Sys.getenv("DATABRICKS_HOST", unset = NA)
-  if (is.null(host) | is.na(host)) {
+  if(!is.null(host)) {
+    return(set_names(host, "argument"))
+  }
+  env_host <-  Sys.getenv("DATABRICKS_HOST", unset = NA)
+  connect_host <- Sys.getenv("CONNECT_DATABRICKS_HOST", unset = NA)
+  if(!is.na(env_host)) {
+    host <- set_names(env_host, "environment")
+  }
+  if(!is.na(connect_host)) {
+    host <- set_names(connect_host, "environment_connect")
+  }
+  if (is.null(host)) {
     if (fail) {
       cli_abort(c(
         paste0(
@@ -17,20 +27,25 @@ databricks_host <- function(host = NULL, fail = TRUE) {
 }
 
 databricks_token <- function(token = NULL, fail = FALSE) {
-  name <- "argument"
-  # Checks for OAuth Databricks token inside the RStudio API
-  if (is.null(token) && exists(".rs.api.getDatabricksToken")) {
-    getDatabricksToken <- get(".rs.api.getDatabricksToken")
-    name <- "oauth"
-    token <- getDatabricksToken(databricks_host())
+  if(!is.null(token)) {
+    return(set_names(token, "argument"))
   }
   # Checks the Environment Variable
   if (is.null(token)) {
     env_token <- Sys.getenv("DATABRICKS_TOKEN", unset = NA)
+    connect_token <- Sys.getenv("CONNECT_DATABRICKS_TOKEN", unset = NA)
     if (!is.na(env_token)) {
-      name <- "environment"
-      token <- env_token
+      token <- set_names(env_token, "environment")
+    } else {
+      if(!is.na(connect_token)) {
+        token <- set_names(connect_token, "environment_connect")
+      }
     }
+  }
+  # Checks for OAuth Databricks token inside the RStudio API
+  if (is.null(token) && exists(".rs.api.getDatabricksToken")) {
+    getDatabricksToken <- get(".rs.api.getDatabricksToken")
+    token <- set_names(getDatabricksToken(databricks_host()), "oauth")
   }
   if (is.null(token)) {
     if (fail) {
@@ -44,45 +59,62 @@ databricks_token <- function(token = NULL, fail = FALSE) {
         "Please add your Token to 'DATABRICKS_TOKEN' inside your .Renviron file."
       ))
     } else {
-      name <- NULL
       token <- ""
     }
   }
-  set_names(token, name)
+  token
 }
 
-databricks_dbr_version <- function(cluster_id,
-                                   host = NULL,
-                                   token = NULL) {
-  cli_div(theme = cli_colors())
-  cli_alert_warning(
-    "{.header Retrieving version from cluster }{.emph '{cluster_id}'}"
-  )
+databricks_dbr_version_name <- function(cluster_id,
+                                        host = NULL,
+                                        token = NULL,
+                                        silent = FALSE
+                                        ) {
+  bullets <- NULL
+  version <- NULL
   cluster_info <- databricks_dbr_info(
     cluster_id = cluster_id,
     host = host,
-    token = token
+    token = token,
+    silent = silent
   )
-  sp_version <- cluster_info$spark_version
+  cluster_name <- substr(cluster_info$cluster_name, 1, 100)
+  version <- databricks_extract_version(cluster_info)
+  cli_progress_done()
+  cli_end()
+  list(version = version, name = cluster_name)
+}
+
+databricks_extract_version <- function(x) {
+  sp_version <- x$spark_version
   if (!is.null(sp_version)) {
     sp_sep <- unlist(strsplit(sp_version, "\\."))
     version <- paste0(sp_sep[1], ".", sp_sep[2])
-    cli_bullets(c(
-      " " = "{.class Cluster version: }{.emph '{version}'}"
-    ))
   } else {
     version <- ""
   }
-  cli_end()
   version
 }
 
 databricks_dbr_info <- function(cluster_id,
                                 host = NULL,
-                                token = NULL) {
+                                token = NULL,
+                                silent = FALSE
+                                ) {
+
+  cli_div(theme = cli_colors())
+
+  if(!silent) {
+    cli_progress_step(
+    msg = "Retrieving info for cluster:}{.emph '{cluster_id}'",
+    msg_done = "{.header Cluster:} {.emph '{cluster_id}'} | {.header DBR: }{.emph '{version}'}",
+    msg_failed = "Failed contacting:}{.emph '{cluster_id}'"
+  )}
+
   out <- databricks_cluster_get(cluster_id, host, token)
   if (inherits(out, "try-error")) {
-    out <- databricks_cluster_get(cluster_id, sanitize_host(host), token)
+    sanitized <- sanitize_host(host, silent)
+    out <- databricks_cluster_get(cluster_id, sanitized, token)
   }
 
   if (inherits(out, "try-error")) {
@@ -110,6 +142,7 @@ databricks_dbr_info <- function(cluster_id,
     if (as.character(substr(out, 1, 26)) == "Error in req_perform(.) : ") {
       out <- substr(out, 27, nchar(out))
     }
+    if(!silent) cli_progress_done(result = "failed")
     cli_abort(
       c(
         "{.header Connection with Databricks failed: }\"{trimws(out)}\"",
@@ -120,8 +153,23 @@ databricks_dbr_info <- function(cluster_id,
       call = NULL
     )
     out <- list()
+  } else {
+    version <- databricks_extract_version(out)
   }
+  if(!silent) cli_progress_done()
+  cli_end()
   out
+}
+
+databricks_dbr_version <- function(cluster_id,
+                                   host = NULL,
+                                   token = NULL) {
+  vn <- databricks_dbr_version_name(
+    cluster_id = cluster_id,
+    host = host,
+    token = token
+  )
+  vn$version
 }
 
 databricks_cluster_get <- function(cluster_id,
@@ -176,7 +224,7 @@ databricks_dbr_error <- function(error) {
   )
 }
 
-sanitize_host <- function(url) {
+sanitize_host <- function(url, silent = FALSE) {
   parsed_url <- url_parse(url)
   new_url <- url_parse("http://localhost")
   if (is.null(parsed_url$scheme)) {
@@ -189,20 +237,11 @@ sanitize_host <- function(url) {
     new_url$hostname <- parsed_url$hostname
   }
   ret <- url_build(new_url)
-  if (ret != url) {
+  if (ret != url && !silent) {
     cli_div(theme = cli_colors())
     cli_alert_warning(
-      "{.header Sanitizing Databricks Host ({.code master}) entry:}"
+      "{.header Changing host URL to:} {.emph {ret}}"
     )
-    cli_bullets(c(
-      " " = "{.header Original: {.emph {url}}}",
-      " " = "{.header Using:}    {.emph {ret}}",
-      " " = paste0(
-        "{.class Set {.code host_sanitize = FALSE} ",
-        "in {.code spark_connect()} to avoid this change}"
-      )
-    ))
-
     cli_end()
   }
   ret

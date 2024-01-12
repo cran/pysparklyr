@@ -11,8 +11,7 @@ spark_connect_method.spark_method_spark_connect <- function(
     extensions,
     scala_version,
     ...) {
-
-  version <-  version %||% Sys.getenv("SPARK_VERSION")
+  version <- version %||% Sys.getenv("SPARK_VERSION")
 
   if (version == "") {
     cli_abort("Spark `version` is required, please provide")
@@ -22,20 +21,22 @@ spark_connect_method.spark_method_spark_connect <- function(
   envname <- args$envname
 
   envname <- use_envname(
-    method = method,
+    backend = "pyspark",
     version = version,
     envname = envname,
     messages = TRUE,
     match_first = TRUE
   )
 
-  if (method == "spark_connect") {
-    pyspark <- import_check("pyspark", envname)
-    pyspark_sql <- pyspark$sql
-    conn <- pyspark_sql$SparkSession$builder$remote(master)
-    con_class <- "connect_spark"
-    master_label <- glue("Spark Connect - {master}")
+  if(is.null(envname)) {
+    return(invisible())
   }
+
+  pyspark <- import_check("pyspark", envname)
+  pyspark_sql <- pyspark$sql
+  conn <- pyspark_sql$SparkSession$builder$remote(master)
+  con_class <- "connect_spark"
+  master_label <- glue("Spark Connect - {master}")
 
   initialize_connection(
     conn = conn,
@@ -65,46 +66,80 @@ spark_connect_method.spark_method_databricks_connect <- function(
   token <- args$token
   envname <- args$envname
   host_sanitize <- args$host_sanitize %||% TRUE
+  silent <- args$silent %||% FALSE
 
   method <- method[[1]]
-  token <- databricks_token(token, fail = TRUE)
+  token <- databricks_token(token, fail = FALSE)
   cluster_id <- cluster_id %||% Sys.getenv("DATABRICKS_CLUSTER_ID")
-  master <- databricks_host(master)
-  if (host_sanitize) {
-    master <- sanitize_host(master)
+  master <- databricks_host(master, fail = FALSE)
+  if (host_sanitize && master != "") {
+    master <- sanitize_host(master, silent)
   }
-  if (is.null(version) && !is.null(cluster_id)) {
-    version <- databricks_dbr_version(
+
+  cluster_info <- NULL
+  if (cluster_id != "" && master != "" && token != "") {
+    cluster_info <- databricks_dbr_version_name(
       cluster_id = cluster_id,
-      host = master,
-      token = token
-    )
+      host =  master,
+      token = token,
+      silent = silent
+      )
+    if (is.null(version)) {
+      version <- cluster_info$version
+    }
   }
 
   envname <- use_envname(
-    method = method,
+    backend = "databricks",
     version = version,
     envname = envname,
-    messages = TRUE,
-    match_first = TRUE
+    messages = !silent,
+    match_first = TRUE,
+    main_library = "databricks.connect"
   )
 
-  db <- import_check("databricks.connect", envname)
-  remote <- db$DatabricksSession$builder$remote(
-    host = master,
-    token = token,
-    cluster_id = cluster_id
-  )
-  user_agent <- build_user_agent()
-  conn <- remote$userAgent(user_agent)
-  con_class <- "connect_databricks"
-  cluster_info <- databricks_dbr_info(cluster_id, master, token)
-  cluster_name <- substr(cluster_info$cluster_name, 1, 100)
-  master_label <- glue("{cluster_name} ({cluster_id})")
+  if(is.null(envname)) {
+    return(invisible)
+  }
+
+  db <- import_check("databricks.connect", envname, silent)
+
+  if (!is.null(cluster_info)) {
+    msg <- "{.header Connecting to} {.emph '{cluster_info$name}'}"
+    msg_done <- "{.header Connected to:} {.emph '{cluster_info$name}'}"
+    master_label <- glue("{cluster_info$name} ({cluster_id})")
+  } else {
+    msg <- "{.header Connecting to} {.emph '{cluster_id}'}"
+    msg_done <- "{.header Connected to:} '{.emph '{cluster_id}'}'"
+    master_label <- glue("Databricks Connect - Cluster: {cluster_id}")
+  }
+
+  if(!silent) {
+    cli_div(theme = cli_colors())
+    cli_progress_step(msg, msg_done)
+  }
+
+  remote_args <- list()
+  if (master != "") remote_args$host <- master
+  if (token != "") remote_args$token <- token
+  if (cluster_id != "") remote_args$cluster_id <- cluster_id
+
+  databricks_session <- function(...) {
+    user_agent <- build_user_agent()
+    db$DatabricksSession$builder$remote(...)$userAgent(user_agent)
+  }
+
+  conn <- exec(databricks_session, !!!remote_args)
+
+  if(!silent) {
+    cli_progress_done()
+    cli_end()
+  }
+
   initialize_connection(
     conn = conn,
     master_label = master_label,
-    con_class = con_class,
+    con_class = "connect_databricks",
     cluster_id = cluster_id,
     method = method,
     config = config
@@ -129,7 +164,11 @@ initialize_connection <- function(
     message = "is_categorical_dtype is deprecated",
     module = "pyspark"
   )
-
+  warnings$filterwarnings(
+    "ignore",
+    message = "'SparkSession' object has no attribute 'setLocalProperty'",
+    module = "pyspark"
+  )
   session <- conn$getOrCreate()
   get_version <- try(session$version, silent = TRUE)
   if (inherits(get_version, "try-error")) databricks_dbr_error(get_version)
@@ -154,9 +193,9 @@ initialize_connection <- function(
 
   sc
 }
-setOldClass(
-  c("Hive", "spark_connection")
-)
+# setOldClass(
+#   c("Hive", "spark_connection")
+# )
 
 
 setOldClass(
@@ -195,16 +234,13 @@ build_user_agent <- function() {
   }
 
   if (is.null(product)) {
-    check_rstudio <- try(RStudio.Version(), silent = TRUE)
-    if (!inherits(check_rstudio, "try-error")) {
+    if (check_rstudio()) {
+      rstudio_version <- int_rstudio_version()
       prod <- "rstudio"
-
-      edition <- check_rstudio$edition
+      edition <- rstudio_version$edition
       if (length(edition) == 0) edition <- ""
-
-      mod <- check_rstudio$mode
+      mod <- rstudio_version$mode
       if (length(mod) == 0) mod <- ""
-
       if (edition == "Professional") {
         if (mod == "server") {
           prod <- "workbench-rstudio"
@@ -212,12 +248,10 @@ build_user_agent <- function() {
           prod <- "rstudio-pro"
         }
       }
-
       if (Sys.getenv("R_CONFIG_ACTIVE") == "rstudio_cloud") {
         prod <- "cloud-rstudio"
       }
-
-      product <- glue("posit-{prod}/{check_rstudio$long_version}")
+      product <- glue("posit-{prod}/{rstudio_version$long_version}")
     }
   }
 
@@ -227,6 +261,12 @@ build_user_agent <- function() {
       product
     )
   )
+}
+
+int_rstudio_version <- function() {
+  out <- try(RStudio.Version(), silent = TRUE)
+  if(!inherits(out, "try-error")) return(out)
+  return(NULL)
 }
 
 connection_label <- function(x) {
@@ -240,8 +280,12 @@ connection_label <- function(x) {
     method <- con$method
   }
   if (!is.null(method)) {
-    if (method == "spark_connect") ret <- "Spark Connect"
-    if (method == "databricks_connect") ret <- "Databricks Connect"
+    if (method == "spark_connect" | method == "pyspark") {
+      ret <- "Spark Connect"
+    }
+    if (method == "databricks_connect" | method == "databricks") {
+      ret <- "Databricks Connect"
+    }
   }
   ret
 }

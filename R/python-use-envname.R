@@ -1,11 +1,16 @@
 use_envname <- function(
     envname = NULL,
-    method = "spark_connect",
+    backend = "pyspark",
     version = NULL,
     messages = FALSE,
     match_first = FALSE,
     ignore_reticulate_python = FALSE,
-    ask_if_not_installed = interactive()) {
+    ask_if_not_installed = interactive(),
+    main_library = NULL
+    ) {
+
+  cli_div(theme = cli_colors())
+
   ret_python <- reticulate_python_check(ignore_reticulate_python)
 
   if (ret_python != "") {
@@ -20,17 +25,11 @@ use_envname <- function(
     cli_abort("A cluster {.code version} is required, please provide one")
   }
 
-  if (method == "spark_connect") {
-    env_base <- "r-sparklyr-pyspark-"
-    run_code <- glue("pysparklyr::install_pyspark(version = \"{version}\")")
-  } else {
-    env_base <- "r-sparklyr-databricks-"
-    run_code <- glue("pysparklyr::install_databricks(version = \"{version}\")")
-  }
-
-  con_label <- connection_label(method)
+  env_base <- glue("r-sparklyr-{backend}-")
+  run_code <- glue("pysparklyr::install_{backend}(version = \"{version}\")")
   run_full <- "{.header Run: {.run {run_code}} to install.}"
 
+  con_label <- connection_label(backend)
   sp_version <- version_prep(version)
   envname <- as.character(glue("{env_base}{sp_version}"))
   envs <- find_environments(env_base)
@@ -38,74 +37,86 @@ use_envname <- function(
   match_one <- length(envs) > 0
   match_exact <- length(envs[envs == envname]) > 0
 
+  if(!is.null(main_library) && !match_exact) {
+    lib_info <- python_library_info(main_library, fail = FALSE, verbose = FALSE)
+    latest_ver <- lib_info$version
+    install_recent <- compareVersion(latest_ver, version) == 1
+  } else {
+    install_recent <- TRUE
+  }
+
+  msg_default <- paste0(
+    "{.header You do not have a Python environment that matches your",
+    " {.emph {con_label}} cluster}"
+    )
+
+  msg_1 <- NULL
+  msg_2 <- NULL
+  msg_yes <- NULL
+  msg_no <- NULL
+
   # There were 0 environments found
   if (!match_one && !match_exact) {
     ret <- set_names(envname, "unavailable")
-    msg_1 <- paste0(
-      "No {.emph viable} Python Environment was identified for ",
-      "{.emph {con_label}} version {.emph {version}}"
-    )
-    msg_2 <- NULL
+    msg_1 <- msg_default
+    msg_no <- " - Will use the default Python environment"
   }
 
   # Found an exact match
   if (match_one && match_exact) {
     ret <- set_names(envname, "exact")
-    msg_1 <- paste0(
-      "No {.emph matching} Python Environment was found for ",
-      "{.emph {con_label}} version {.emph {version}}"
-    )
-    msg_2 <- NULL
   }
 
   # There are environments, but no exact match, and argument says
   # to choose the most recent environment
   if (match_one && !match_exact && match_first) {
     ret <- set_names(envs[1], "first")
-    msg_1 <- paste0(
-      "No {.emph exact} Python Environment was found for ",
-      "{.emph {con_label}} version {.emph {version}}. \n"
-    )
-    msg_2 <- paste0(
-      "{.header If the exact version is not installed, {.code sparklyr} will ",
-      "use {.code {ret}}}"
-    )
+    if(install_recent) {
+      msg_1 <- msg_default
+      msg_no <- glue(" - Will use alternate environment ({ret})")
+    } else {
+      ask_if_not_installed <- FALSE
+      run_full <- NULL
+      msg_1 <- paste0(
+        "{.header Library {.emph {con_label}} version {.emph {version}} is not ",
+        "yet available}"
+      )
+    }
   }
 
   # There are environments, but no exact match
   if (match_one && !match_exact && !match_first) {
-    msg_1 <- paste0(
-      "No {.emph exact} Python Environment was found for ",
-      "{.emph {con_label}} version {.emph {version}}"
-    )
-    msg_2 <- "{.header The default Python environment may not work correctly}"
+    msg_1 <- msg_default
+    msg_no <- " - Will use the default Python environment"
     ret <- set_names(envname, "unavailable")
   }
 
   ret_name <- names(ret)
   if (messages && ret_name != "exact") {
-    cli_div(theme = cli_colors())
     if (ask_if_not_installed) {
       cli_alert_warning(msg_1)
       cli_bullets(c(
         " " = msg_2,
-        " " = "Do you wish to install {con_label} version {version}?"
+        " " = "{.header Do you wish to install {con_label} version {version}?}"
       ))
-      choice <- utils::menu(choices = c("Yes", "No", "Cancel"))
+      choice <- menu(choices = c(
+        paste0("Yes", msg_yes),
+        paste0("No", msg_no),
+        "Cancel"
+        ))
       if (choice == 1) {
         ret <- set_names(envname, "prompt")
-        if (method == "databricks_connect") {
-          install_databricks(version = version, as_job = FALSE)
-        }
-        if (method == "spark_connect") {
-          install_pyspark(version = version, as_job = FALSE)
-        }
+        exec(
+          .fn = glue("install_{backend}"),
+          version = version,
+          as_job = FALSE
+          )
       }
       if (choice == 2) {
         ret <- set_names(ret, "prompt")
       }
       if (choice == 3) {
-        cli_abort("Operation cancelled by user")
+        stop_quietly()
       }
     } else {
       if (ret_name == "unavailable") {
@@ -121,7 +132,6 @@ use_envname <- function(
     }
     cli_end()
   }
-
   ret
 }
 

@@ -84,11 +84,6 @@ cli_colors <- function(envir = parent.frame()) {
   )
 }
 
-cli_internal_abort <- function(msg) {
-  cli_div(theme = cli_colors())
-  cli_abort(msg, call = NULL)
-  cli_end()
-}
 
 current_product_connect <- function() {
   out <- FALSE
@@ -96,4 +91,10 @@ current_product_connect <- function() {
     out <- TRUE
   }
   out
+}
+
+stop_quietly <- function() {
+  opt <- options(show.error.messages = FALSE)
+  on.exit(options(opt))
+  stop()
 }

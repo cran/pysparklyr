@@ -73,3 +73,59 @@ test_remove_python_envs <- function(x = "") {
     )
   )
 }
+
+tests_disable_all <- function() {
+  r_scripts <- dir_ls(test_path(), glob = "*.R")
+  test_scripts <- r_scripts[substr(path_file(r_scripts), 1, 5) == "test-"]
+  map(
+    test_scripts, ~ {
+      ln <- readLines(.x)
+      writeLines(c("skip(\"temp\")", ln), con = .x)
+    }
+  )
+}
+
+tests_enable_all <- function() {
+  r_scripts <- dir_ls(test_path(), glob = "*.R")
+  test_scripts <- r_scripts[substr(path_file(r_scripts), 1, 5) == "test-"]
+  map(
+    test_scripts, ~ {
+      ln <- readLines(.x)
+      new_ln <- ln[ln != "skip(\"temp\")"]
+      writeLines(new_ln, con = .x)
+    }
+  )
+}
+
+test_databricks_cluster_id <- function() {
+  Sys.getenv("DATABRICKS_CLUSTER_ID")
+}
+
+test_databricks_cluster_version <- function() {
+  if (is.null(.test_env$dbr)) {
+    dbr <- databricks_dbr_version(
+      cluster_id = test_databricks_cluster_id(),
+      host = databricks_host(),
+      token = databricks_token()
+    )
+    .test_env$dbr <- dbr
+  }
+  .test_env$dbr
+}
+
+test_databricks_stump_env <- function() {
+  env_name <- use_envname(
+    version = test_databricks_cluster_version(),
+    backend = "databricks"
+  )
+  env_path <- path(use_test_env(), env_name)
+  if (names(env_name) != "exact") {
+    py_install(
+      package = "numpy",
+      envname = env_path,
+      pip = TRUE,
+      python = Sys.which("python")
+    )
+  }
+  path(env_path, "bin", "python")
+}
