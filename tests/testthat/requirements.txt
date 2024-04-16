@@ -1,3 +1,0 @@
-# Automatically created by `sparklyr`
-
-numpy==1.26.2

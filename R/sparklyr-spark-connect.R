@@ -28,7 +28,7 @@ spark_connect_method.spark_method_spark_connect <- function(
     match_first = TRUE
   )
 
-  if(is.null(envname)) {
+  if (is.null(envname)) {
     return(invisible())
   }
 
@@ -80,10 +80,10 @@ spark_connect_method.spark_method_databricks_connect <- function(
   if (cluster_id != "" && master != "" && token != "") {
     cluster_info <- databricks_dbr_version_name(
       cluster_id = cluster_id,
-      host =  master,
+      host = master,
       token = token,
       silent = silent
-      )
+    )
     if (is.null(version)) {
       version <- cluster_info$version
     }
@@ -98,7 +98,7 @@ spark_connect_method.spark_method_databricks_connect <- function(
     main_library = "databricks.connect"
   )
 
-  if(is.null(envname)) {
+  if (is.null(envname)) {
     return(invisible)
   }
 
@@ -114,7 +114,7 @@ spark_connect_method.spark_method_databricks_connect <- function(
     master_label <- glue("Databricks Connect - Cluster: {cluster_id}")
   }
 
-  if(!silent) {
+  if (!silent) {
     cli_div(theme = cli_colors())
     cli_progress_step(msg, msg_done)
   }
@@ -131,7 +131,7 @@ spark_connect_method.spark_method_databricks_connect <- function(
 
   conn <- exec(databricks_session, !!!remote_args)
 
-  if(!silent) {
+  if (!silent) {
     cli_progress_done()
     cli_end()
   }
@@ -169,10 +169,16 @@ initialize_connection <- function(
     message = "'SparkSession' object has no attribute 'setLocalProperty'",
     module = "pyspark"
   )
+  warnings$filterwarnings(
+    "ignore",
+    message = "Index.format is deprecated and will be removed in a future version"
+  )
   session <- conn$getOrCreate()
   get_version <- try(session$version, silent = TRUE)
   if (inherits(get_version, "try-error")) databricks_dbr_error(get_version)
   session$conf$set("spark.sql.session.localRelationCacheThreshold", 1048576L)
+  session$conf$set("spark.sql.execution.arrow.pyspark.enabled", "true")
+  session$conf$set("spark.sql.execution.arrow.pyspark.fallback.enabled", "false")
 
   # do we need this `spark_context` object?
   spark_context <- list(spark_context = session)
@@ -265,7 +271,9 @@ build_user_agent <- function() {
 
 int_rstudio_version <- function() {
   out <- try(RStudio.Version(), silent = TRUE)
-  if(!inherits(out, "try-error")) return(out)
+  if (!inherits(out, "try-error")) {
+    return(out)
+  }
   return(NULL)
 }
 
