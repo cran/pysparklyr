@@ -12,7 +12,10 @@
 #' @return The result of calling `rhs(lhs)`.
 NULL
 
-reticulate_python_check <- function(ignore = FALSE, unset = TRUE, message = TRUE) {
+reticulate_python_check <- function(
+    ignore = FALSE,
+    unset = FALSE,
+    message = TRUE) {
   if (ignore) {
     return("")
   }
@@ -130,4 +133,15 @@ stop_quietly <- function() {
 
 use_arrow <- function() {
   arrow::binary()
+}
+
+list_diff <- function(x, y) {
+  x_names <- names(x)
+  y_names <- names(y)
+
+  # Find elements that are either:
+  c(
+    x[setdiff(x_names, y_names)], # 1. New names in x
+    x[!mapply(identical, x[y_names], y)] # 2. Same name but different value
+  )
 }

@@ -1,15 +1,18 @@
 import_check <- function(x, envname, silent = FALSE) {
   cli_div(theme = cli_colors())
-  if (!silent) {
-    cli_progress_step(
-      msg = "Attempting to load {.emph '{envname}'}",
-      msg_done = "{.header Python environment:} {.emph '{envname}'}",
-      msg_failed = "Problem using {.emph '{envname}'}"
-    )
-  }
   env_found <- !is.na(envname)
   env_loaded <- NA
+  is_uv <- FALSE
+  uv_managed <- NA
   look_for_env <- TRUE
+
+  env_found_names <- names(env_found) %||% ""
+
+  if(env_found_names == "unavailable") {
+    env_found <- FALSE
+  }
+
+  cli_msg <- "Attempting to load {.emph '{envname}'}"
 
   if (file.exists(envname)) {
     env_is_file <- TRUE
@@ -17,6 +20,21 @@ import_check <- function(x, envname, silent = FALSE) {
   } else {
     env_is_file <- FALSE
     env_path <- env_python(envname)
+    if (is.na(env_path)) {
+      env_path <- ""
+      is_uv <- TRUE
+      uv_managed <- "true"
+      envname <- "Managed `uv` environment"
+      cli_msg <- NULL
+    }
+  }
+
+  if (!silent) {
+    cli_progress_step(
+      msg = cli_msg,
+      msg_done = "{.header Python environment:} {.emph '{envname}'}",
+      msg_failed = "Problem using {.emph '{envname}'}"
+    )
   }
 
   if (env_is_file) {
@@ -56,11 +74,19 @@ import_check <- function(x, envname, silent = FALSE) {
     }
   }
 
-  if (is.na(env_loaded)) {
-    env_loaded <- env_path == py_exe()
+  if(is.na(env_loaded)) {
+    if(env_path != "") {
+      py_executable <- py_exe() %||% ""
+      env_loaded <- env_path == py_executable
+    } else {
+      env_loaded <- FALSE
+    }
   }
 
-  out <- try(import(x), silent = TRUE)
+  withr::with_envvar(
+    c("RETICULATE_USE_MANAGED_VENV" = uv_managed),
+    out <- try(import(x), silent = TRUE)
+  )
 
   if (inherits(out, "try-error")) {
     if (env_found) {
@@ -95,18 +121,7 @@ import_check <- function(x, envname, silent = FALSE) {
     }
     cli_alert_danger(glue("`reticulate` error:\n {out[[1]]}"))
   } else {
-    if (env_loaded) {
-      # if (look_for_env) {
-      #   msg <- paste(
-      #     "{.header Using the }{.emph '{envname}' }{.header Python}",
-      #     "{.header environment }"
-      #   )
-      #   cli_div(theme = cli_colors())
-      #   cli_alert_success(msg)
-      #   cli_bullets(c(" " = "{.class Path: {py_exe()}}"))
-      #   cli_end()
-      # }
-    } else {
+    if (!env_loaded && !is_uv) {
       cli_progress_done(result = "failed")
       cli_bullets(c(
         " " = "{.header A different Python is already loaded: }{.emph '{py_exe()}'}",
