@@ -1,3 +1,14 @@
+# pysparklyr 0.1.8
+
+### Fixes
+
+* Avoids installing `rpy2` automatically for `uv`-based environments. It will
+also install `rpy2` via `py_require()` when `spark_apply()` is called.
+
+* Fixes issue with resetting the connection label (#144)
+
+* Restores Databricks Host name sanitation 
+
 # pysparklyr 0.1.7
 
 ### Improvements
