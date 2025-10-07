@@ -9,6 +9,7 @@
 #' @importFrom sparklyr spark_read_json spark_read_orc
 #' @importFrom sparklyr spark_write_csv spark_write_parquet spark_write_text
 #' @importFrom sparklyr spark_write_orc spark_write_json spark_write_table
+#' @importFrom sparklyr spark_write_delta
 #' @importFrom sparklyr ml_pipeline ml_predict ml_transform ml_fit
 #' @importFrom sparklyr ml_logistic_regression ft_standard_scaler ft_max_abs_scaler
 #' @importFrom sparklyr ml_save ml_load spark_jobj spark_install_find spark_apply
@@ -29,7 +30,7 @@
 #' @importFrom vctrs vec_as_names
 #' @importFrom processx process
 #' @importFrom rstudioapi jobRunScript showQuestion getSourceEditorContext
-#' @importFrom stats terms
+#' @importFrom stats terms setNames
 #' @importFrom utils capture.output installed.packages menu
 #' @importFrom magrittr %>%
 #' @import reticulate
