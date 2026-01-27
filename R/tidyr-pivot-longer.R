@@ -1,20 +1,21 @@
 #' @export
 pivot_longer.tbl_pyspark <- function(
-    data,
-    cols,
-    ...,
-    cols_vary = "fastest",
-    names_to = "name",
-    names_prefix = NULL,
-    names_sep = NULL,
-    names_pattern = NULL,
-    names_ptypes = NULL,
-    names_transform = NULL,
-    names_repair = NULL,
-    values_to = "value",
-    values_drop_na = FALSE,
-    values_ptypes = NULL,
-    values_transform = NULL) {
+  data,
+  cols,
+  ...,
+  cols_vary = "fastest",
+  names_to = "name",
+  names_prefix = NULL,
+  names_sep = NULL,
+  names_pattern = NULL,
+  names_ptypes = NULL,
+  names_transform = NULL,
+  names_repair = NULL,
+  values_to = "value",
+  values_drop_na = FALSE,
+  values_ptypes = NULL,
+  values_transform = NULL
+) {
   check_arg_supported(names_ptypes)
   check_arg_supported(names_transform)
   check_arg_supported(names_repair)
@@ -34,8 +35,8 @@ pivot_longer.tbl_pyspark <- function(
   # operate the piped commands first.
   temp_name <- tbl_temp_name()
   te_df <- tbl_pyspark_temp(spark_df, data, temp_name)
-  col_names <- te_df %>%
-    select(!!enquo(cols)) %>%
+  col_names <- te_df |>
+    select(!!enquo(cols)) |>
     colnames()
 
   if (length(col_names) == 0) {
@@ -90,7 +91,6 @@ pivot_longer.tbl_pyspark <- function(
       set_names_to <- "temp222"
     }
 
-
     all_pv <- NULL
     for (i in seq_along(u_val)) {
       nm_rm <- list()
@@ -126,7 +126,9 @@ pivot_longer.tbl_pyspark <- function(
     for (i in seq_along(all_pv)) {
       no_i <- length(all_pv) - i + 1
       if (no_i > 1) {
-        if (is.null(out)) out <- all_pv[[no_i]]
+        if (is.null(out)) {
+          out <- all_pv[[no_i]]
+        }
         next_df <- all_pv[[(no_i - 1)]]
         out <- out$join(
           other = next_df,
@@ -169,13 +171,16 @@ pivot_longer.tbl_pyspark <- function(
   out
 }
 
-un_pivot <- function(x, ids,
-                     values,
-                     names_to,
-                     values_to,
-                     remove_first,
-                     values_drop_na,
-                     repair) {
+un_pivot <- function(
+  x,
+  ids,
+  values,
+  names_to,
+  values_to,
+  remove_first,
+  values_drop_na,
+  repair
+) {
   out <- x$unpivot(
     ids = as.list(ids),
     values = as.list(values),
@@ -202,11 +207,11 @@ un_pivot <- function(x, ids,
 
 check_same_types <- function(x, col_names) {
   dtypes <- x$select(col_names)$dtypes
-  char_types <- map_chr(dtypes, ~ .x[[2]])
+  char_types <- map_chr(dtypes, \(.x) .x[[2]])
   char_match <- length(unique(char_types)) == 1
 
   if (!char_match) {
-    type_names <- map_chr(dtypes, ~ paste0(.x[[1]], " <", .x[[2]], ">"))
+    type_names <- map_chr(dtypes, \(.x) paste0(.x[[1]], " <", .x[[2]], ">"))
     abort(glue(
       "There is a data type mismatch: {paste0(type_names, collapse = ' ')}"
     ))

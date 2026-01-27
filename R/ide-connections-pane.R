@@ -1,10 +1,11 @@
 #' @export
 spark_ide_objects.pyspark_connection <- function(
-    con,
-    catalog = NULL,
-    schema = NULL,
-    name = NULL,
-    type = NULL) {
+  con,
+  catalog = NULL,
+  schema = NULL,
+  name = NULL,
+  type = NULL
+) {
   catalog_python(
     con = con,
     catalog = catalog,
@@ -16,16 +17,17 @@ spark_ide_objects.pyspark_connection <- function(
 
 #' @export
 spark_ide_columns.pyspark_connection <- function(
-    con,
-    table = NULL,
-    view = NULL,
-    catalog = NULL,
-    schema = NULL) {
+  con,
+  table = NULL,
+  view = NULL,
+  catalog = NULL,
+  schema = NULL
+) {
   tbl_df <- rs_get_table(con, catalog, schema, table)
 
   tbl_sample <- collect(head(tbl_df))
 
-  tbl_info <- map_chr(tbl_sample, ~ paste0(rs_type(.x), " ", rs_vals(.x)))
+  tbl_info <- map_chr(tbl_sample, \(.x) paste0(rs_type(.x), " ", rs_vals(.x)))
 
   data.frame(
     name = names(tbl_info),
@@ -35,22 +37,24 @@ spark_ide_columns.pyspark_connection <- function(
 
 #' @export
 spark_ide_preview.pyspark_connection <- function(
-    con,
-    rowLimit,
-    table = NULL,
-    view = NULL,
-    catalog = NULL,
-    schema = NULL) {
+  con,
+  rowLimit,
+  table = NULL,
+  view = NULL,
+  catalog = NULL,
+  schema = NULL
+) {
   tbl_df <- rs_get_table(con, catalog, schema, table)
   collect(head(tbl_df, rowLimit))
 }
 
 catalog_python <- function(
-    con,
-    catalog = NULL,
-    schema = NULL,
-    name = NULL,
-    type = NULL) {
+  con,
+  catalog = NULL,
+  schema = NULL,
+  name = NULL,
+  type = NULL
+) {
   df_catalogs <- data.frame()
   df_tables <- data.frame()
 
@@ -59,9 +63,15 @@ catalog_python <- function(
   )
   sc_catalog <- python_conn(con)$catalog
   if (is.null(catalog) && is.null(schema)) {
-    catalogs <- dbGetQuery(con, "show catalogs")
+    sql_catalogs <- con[["misc"]][["sql_catalogs"]] %||% "show catalogs"
+    catalogs <- dbGetQuery(con, sql_catalogs)
     if (nrow(catalogs) > 0) {
-      out <- data.frame(name = catalogs$catalog, type = "catalog")
+      catalog_name <- ifelse(
+        "catalog" %in% colnames(catalogs),
+        "catalog",
+        "name"
+      )
+      out <- data.frame(name = catalogs[[catalog_name]], type = "catalog")
     }
     if (!is.na(limit)) {
       out <- head(out, limit)
@@ -71,17 +81,26 @@ catalog_python <- function(
       out <- rs_get_databases(con, limit, catalog)
     } else {
       if (is.null(catalog)) {
-        sql_schema <- "show tables in `{schema}`"
+        sql_schema <- con[["misc"]][["sql_tables_schema"]] %||%
+          "show tables in `{schema}`"
       } else {
-        sql_schema <- "show tables in `{catalog}`.`{schema}`"
+        sql_schema <- con[["misc"]][["sql_tables_catalog_schema"]] %||%
+          "show tables in `{catalog}`.`{schema}`"
       }
       tables <- dbGetQuery(con, glue(sql_schema))
+      tables_name <- ifelse(
+        "tableName" %in% colnames(tables),
+        "tableName",
+        "name"
+      )
       out <- df_tables
       if (nrow(tables) > 0) {
-        tables <- tables[!tables$isTemporary, ]
+        if ("isTemporary" %in% colnames(tables)) {
+          tables <- tables[!tables$isTemporary, ]
+        }
         if (nrow(tables) > 0) {
           out <- data.frame(
-            name = tables$tableName,
+            name = tables[[tables_name]],
             schema = schema,
             type = "table"
           )
@@ -99,12 +118,16 @@ catalog_python <- function(
 rs_get_databases <- function(con, limit = NA, catalog = NULL) {
   out <- data.frame()
   if (!is.null(catalog)) {
-    databases <- dbGetQuery(con, glue("show databases in `{catalog}`"))
+    sql_databases <- con[["misc"]][["sql_schemas_catalog"]] %||%
+      "show databases in `{catalog}`"
   } else {
-    databases <- dbGetQuery(con, glue("show databases"))
+    sql_databases <- con[["misc"]][["sql_schemas"]] %||% "show databases"
   }
+  databases <- dbGetQuery(con, glue(sql_databases))
   if (nrow(databases) > 0) {
-    db_names <- databases$databaseName %||% databases$namespace
+    db_names <- databases$databaseName %||%
+      databases$namespace %||%
+      databases$name
     out <- data.frame(name = db_names, type = "schema")
     if (!is.na(limit)) {
       out <- head(out, limit)
@@ -113,26 +136,27 @@ rs_get_databases <- function(con, limit = NA, catalog = NULL) {
   out
 }
 
-rs_get_table <- function(con, catalog, schema, table) {
-  from <- NULL
-  if (!is.null(catalog)) {
-    from <- in_catalog(catalog, schema, table)
-  }
-  if (!is.null(schema) && is.null(from)) {
-    from <- in_schema(schema, table)
-  }
-  if (is.null(from)) {
-    from <- table
-  }
-  tbl(con, from)
+rs_get_table <- function(con, catalog = NULL, schema = NULL, table = NULL) {
+  cq <- ifelse(is.null(con$quote), "`", con$quote)
+  from <- c(catalog, schema, table)
+  from <- paste0(cq, from, cq, collapse = ".")
+  tbl(con, I(from))
 }
 
 rs_type <- function(x) {
   class <- class(x)[[1]]
-  if (class == "integer") class <- "int"
-  if (class == "numeric") class <- "num"
-  if (class == "POSIXct") class <- "dttm"
-  if (class == "character") class <- "chr"
+  if (class == "integer") {
+    class <- "int"
+  }
+  if (class == "numeric") {
+    class <- "num"
+  }
+  if (class == "POSIXct") {
+    class <- "dttm"
+  }
+  if (class == "character") {
+    class <- "chr"
+  }
   class
 }
 

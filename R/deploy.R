@@ -1,3 +1,16 @@
+# This is to enable mocked tests, and the fact that rsconnect is
+# not being directly imported by this package
+shhhh <- function(x) {
+  suppressPackageStartupMessages(requireNamespace(x, quietly = TRUE))
+}
+is_installed <- function(pkg) {
+  res <- try(shhhh(pkg), silent = TRUE)
+  res
+}
+rsconnect_accounts <- if (is_installed("rsconnect")) rsconnect::accounts
+rsconnect_deployments <- if (is_installed("rsconnect")) rsconnect::deployments
+rsconnect_deployApp <- if (is_installed("rsconnect")) rsconnect::deployApp
+
 #' Deploys Databricks backed content to publishing server
 #'
 #' @description
@@ -36,18 +49,29 @@
 #' @returns No value is returned to R. Only output to the console.
 #' @export
 deploy_databricks <- function(
-    appDir = NULL,
-    python = NULL,
-    account = NULL,
-    server = NULL,
-    lint = FALSE,
-    forceGeneratePythonEnvironment = TRUE,
-    version = NULL,
-    cluster_id = NULL,
-    host = NULL,
-    token = NULL,
-    confirm = interactive(),
-    ...) {
+  appDir = NULL,
+  python = NULL,
+  account = NULL,
+  server = NULL,
+  lint = FALSE,
+  forceGeneratePythonEnvironment = TRUE,
+  version = NULL,
+  cluster_id = NULL,
+  host = NULL,
+  token = NULL,
+  confirm = interactive(),
+  ...
+) {
+  if (!is_installed("rsconnect")) {
+    cli_abort(
+      paste(
+        "The package {.pkg rsconnect} is needed for publication but it is not",
+        "installed. Use {.run install.packages(\"rsconnect\")} to install and",
+        "then try again."
+      )
+    )
+  }
+
   cli_div(theme = cli_colors())
 
   cluster_id <- cluster_id %||% Sys.getenv("DATABRICKS_CLUSTER_ID")
@@ -65,35 +89,33 @@ deploy_databricks <- function(
 
   # Host URL
   if (!is.null(host)) {
-    Sys.setenv("CONNECT_DATABRICKS_HOST" = host)
-    env_vars <- "CONNECT_DATABRICKS_HOST"
+    env_vars <- c("CONNECT_DATABRICKS_HOST" = host)
   } else {
-    env_host_name <- "DATABRICKS_HOST"
-    env_host <- Sys.getenv(env_host_name, unset = "")
+    env_host <- Sys.getenv("DATABRICKS_HOST", unset = "")
     if (env_host != "") {
-      env_vars <- c(env_vars, env_host_name)
+      env_vars <- c(env_vars, "DATABRICKS_HOST" = env_host)
       host <- env_host
     }
   }
   if (!is.null(host)) {
     env_var_message <- c("i" = paste0("{.header Host URL:} ", host))
   } else {
-    var_error <- c(" " = paste0(
-      "{.header - No host URL was provided or found. Please either set the}",
-      " {.emph 'DATABRICKS_HOST'} {.header environment variable,}",
-      " {.header or pass the }{.code host} {.header argument.}"
-    ))
+    var_error <- c(
+      " " = paste0(
+        "{.header - No host URL was provided or found. Please either set the}",
+        " {.emph 'DATABRICKS_HOST'} {.header environment variable,}",
+        " {.header or pass the }{.code host} {.header argument.}"
+      )
+    )
   }
 
   # Token
   if (!is.null(token)) {
-    Sys.setenv("CONNECT_DATABRICKS_TOKEN" = token)
-    env_vars <- c(env_vars, "CONNECT_DATABRICKS_TOKEN")
+    env_vars <- c(env_vars, "CONNECT_DATABRICKS_TOKEN" = token)
   } else {
-    env_token_name <- "DATABRICKS_TOKEN"
-    env_token <- Sys.getenv(env_token_name, unset = "")
+    env_token <- Sys.getenv("DATABRICKS_TOKEN", unset = "")
     if (env_token != "") {
-      env_vars <- c(env_vars, env_token_name)
+      env_vars <- c(env_vars, "DATABRICKS_TOKEN" = env_token)
       token <- env_token
     }
   }
@@ -102,49 +124,51 @@ deploy_databricks <- function(
       env_var_message,
       " " = "{.header Token:} '<REDACTED>'"
     )
-  } else {
-    var_error <- c(var_error, " " = paste0(
-      "{.header - No token was provided or found. Please either set the}",
-      " {.emph 'DATABRICKS_TOKEN'} {.header environment variable,}",
-      " {.header or pass the} {.code token} {.header argument.}"
-    ))
   }
 
   if (!is.null(var_error)) {
     cli_abort(c("Cluster setup errors:", var_error), call = NULL)
   }
 
-  deploy(
-    appDir = appDir,
-    lint = lint,
-    python = python,
-    version = version,
-    backend = "databricks",
-    envVars = env_vars,
-    env_var_message = env_var_message,
-    account = account,
-    server = server,
-    confirm = confirm,
-    ...
+  withr::with_envvar(
+    new = env_vars,
+    {
+      deploy(
+        appDir = appDir,
+        lint = lint,
+        python = python,
+        version = version,
+        backend = "databricks",
+        main_library = "databricks-connect",
+        envVars = names(env_vars),
+        env_var_message = env_var_message,
+        account = account,
+        server = server,
+        confirm = confirm,
+        ...
+      )
+    }
   )
 }
 
 deploy <- function(
-    appDir = NULL,
-    account = NULL,
-    server = NULL,
-    lint = FALSE,
-    envVars = NULL,
-    python = NULL,
-    version = NULL,
-    backend = NULL,
-    env_var_message = NULL,
-    confirm,
-    ...) {
+  appDir = NULL,
+  account = NULL,
+  server = NULL,
+  lint = FALSE,
+  envVars = NULL,
+  python = NULL,
+  version = NULL,
+  backend = NULL,
+  main_library = NULL,
+  env_var_message = NULL,
+  confirm,
+  ...
+) {
   if (is.null(backend)) {
     abort("'backend' is empty, please provide one")
   }
-  rs_accounts <- accounts()
+  rs_accounts <- rsconnect_accounts()
   accts_msg <- NULL
   if (nrow(rs_accounts) == 0) {
     abort("There are no server accounts setup")
@@ -179,7 +203,8 @@ deploy <- function(
   python <- deploy_find_environment(
     python = python,
     version = version,
-    backend = backend
+    backend = backend,
+    main_library = main_library
   )
   cli_inform(c(
     "i" = "{.header Posit server:} {.emph {server}}",
@@ -196,17 +221,21 @@ deploy <- function(
       return(invisible())
     }
     if (choice == 3) {
-      chr_accounts <- rs_accounts %>%
-        transpose() %>%
-        map_chr(~ glue("Server: {.x$server} | Account: {.x$name}"))
+      chr_accounts <- rs_accounts |>
+        transpose() |>
+        map_chr(\(.x) glue("Server: {.x$server} | Account: {.x$name}"))
       choice <- menu(title = "Select publishing target:", chr_accounts)
       server <- rs_accounts$server[choice]
       account <- rs_accounts$name[choice]
     }
 
     req_file <- path(appDir, "requirements.txt")
-    prev_deployments <- deployments(appDir)
-    if (!file_exists(req_file) && nrow(prev_deployments) == 0 && check_interactive()) {
+    prev_deployments <- rsconnect_deployments(appDir)
+    if (
+      !file_exists(req_file) &&
+        nrow(prev_deployments) == 0 &&
+        check_interactive()
+    ) {
       cli_inform(c(
         "{.header Would you like to create the 'requirements.txt' file?}",
         "{.class Why consider? This will allow you to skip using `version` or `cluster_id`}"
@@ -221,7 +250,7 @@ deploy <- function(
     }
   }
 
-  deployApp(
+  rsconnect_deployApp(
     appDir = appDir,
     python = python,
     envVars = envVars,
@@ -233,9 +262,11 @@ deploy <- function(
 }
 
 deploy_find_environment <- function(
-    version = NULL,
-    python = NULL,
-    backend = NULL) {
+  version = NULL,
+  python = NULL,
+  backend = NULL,
+  main_library = NULL
+) {
   ret <- NULL
   failed <- NULL
   env_name <- ""
@@ -244,12 +275,15 @@ deploy_find_environment <- function(
     if (!is.null(version)) {
       env_name <- use_envname(
         version = version,
-        backend = backend
+        backend = backend,
+        main_library = main_library
       )
       if (names(env_name) == "exact") {
         check_conda <- try(conda_python(env_name), silent = TRUE)
         check_virtualenv <- try(virtualenv_python(env_name), silent = TRUE)
-        if (!inherits(check_conda, "try-error")) ret <- check_conda
+        if (!inherits(check_conda, "try-error")) {
+          ret <- check_conda
+        }
         if (!inherits(check_virtualenv, "try-error")) ret <- check_virtualenv
       }
       if (is.null(ret)) failed <- env_name
@@ -280,3 +314,7 @@ deploy_find_environment <- function(
   cli_bullets(c("i" = "{.header Python:} {ret}"))
   ret
 }
+
+utils::globalVariables(
+  c("rsconnect_accounts", "rsconnect_deployApp", "rsconnect_deployments")
+)

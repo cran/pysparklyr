@@ -24,7 +24,11 @@ import_check <- function(x, envname, silent = FALSE) {
     cli_msg <- NULL
   } else {
     if (file_exists(envname)) {
-      env_is_file <- is_file(envname)
+      env_contents <- try(dir_ls(envname), silent = TRUE)
+      # Workaround to fs::is_file() not working
+      if (inherits(env_contents, "try-error")) {
+        env_is_file <- TRUE
+      }
       env_path <- envname
     } else {
       env_path <- env_python(envname)
@@ -106,34 +110,44 @@ import_check <- function(x, envname, silent = FALSE) {
         # found & loaded
         rlang::abort(
           paste0(
-            "Issue loading Python library '", x, "'\n",
+            "Issue loading Python library '",
+            x,
+            "'\n",
             as.character(out)
           ),
           call = NULL
         )
       } else {
         cli_progress_done(result = "failed")
-        cli_abort(c(
-          "{.emph '{x}' }{.header is not available current Python environment.}",
-          if (!is_reticulate) {
-            c(
-              paste(
-                "{.header - The }{.emph '{envname}'} {.header Python",
-                " environment is installed, but it is not loaded.}"
-              ),
-              paste(
-                "{.header - Restart your R session, and avoid",
-                " initializing Python before using} {.emph '{x}'}"
+        cli_abort(
+          c(
+            "{.emph '{x}' }{.header is not available current Python environment.}",
+            if (!is_reticulate) {
+              c(
+                paste(
+                  "{.header - The }{.emph '{envname}'} {.header Python",
+                  " environment is installed, but it is not loaded.}"
+                ),
+                paste(
+                  "{.header - Restart your R session, and avoid",
+                  " initializing Python before using} {.emph '{x}'}"
+                )
               )
-            )
-          }
-        ), call = NULL)
+            }
+          ),
+          call = NULL
+        )
       }
     } else {
-      cli_abort(c(
-        "{.emph '{x}' }{.header is not available current Python environment.}",
-        paste("- The {.emph '{envname}'} Python environment is not installed.")
-      ), call = NULL)
+      cli_abort(
+        c(
+          "{.emph '{x}' }{.header is not available current Python environment.}",
+          paste(
+            "- The {.emph '{envname}'} Python environment is not installed."
+          )
+        ),
+        call = NULL
+      )
     }
     cli_alert_danger(glue("`reticulate` error:\n {out[[1]]}"))
   } else {

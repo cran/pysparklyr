@@ -29,14 +29,15 @@
 #' query.
 #' @export
 install_pyspark <- function(
-    version = NULL,
-    envname = NULL,
-    python_version = NULL,
-    new_env = TRUE,
-    method = c("auto", "virtualenv", "conda"),
-    as_job = TRUE,
-    install_ml = FALSE,
-    ...) {
+  version = NULL,
+  envname = NULL,
+  python_version = NULL,
+  new_env = TRUE,
+  method = c("auto", "virtualenv", "conda"),
+  as_job = TRUE,
+  install_ml = FALSE,
+  ...
+) {
   install_as_job(
     main_library = "pyspark",
     spark_method = "pyspark_connect",
@@ -62,15 +63,16 @@ install_pyspark <- function(
 #' @rdname install_pyspark
 #' @export
 install_databricks <- function(
-    version = NULL,
-    cluster_id = NULL,
-    envname = NULL,
-    python_version = NULL,
-    new_env = TRUE,
-    method = c("auto", "virtualenv", "conda"),
-    as_job = TRUE,
-    install_ml = FALSE,
-    ...) {
+  version = NULL,
+  cluster_id = NULL,
+  envname = NULL,
+  python_version = NULL,
+  new_env = TRUE,
+  method = c("auto", "virtualenv", "conda"),
+  as_job = TRUE,
+  install_ml = FALSE,
+  ...
+) {
   if (!is.null(version) && !is.null(cluster_id)) {
     cli_div(theme = cli_colors())
     cli_alert_warning(
@@ -109,22 +111,29 @@ install_databricks <- function(
 }
 
 install_as_job <- function(
-    main_library = NULL,
-    spark_method = NULL,
-    backend = NULL,
-    ml_version = NULL,
-    version = NULL,
-    envname = NULL,
-    python_version = NULL,
-    new_env = NULL,
-    method = c("auto", "virtualenv", "conda"),
-    as_job = TRUE,
-    install_ml = TRUE,
-    ...) {
+  main_library = NULL,
+  spark_method = NULL,
+  backend = NULL,
+  ml_version = NULL,
+  version = NULL,
+  envname = NULL,
+  python_version = NULL,
+  new_env = NULL,
+  method = c("auto", "virtualenv", "conda"),
+  as_job = TRUE,
+  install_ml = TRUE,
+  ...
+) {
   args <- c(as.list(environment()), list(...))
   if (as_job && check_rstudio()) {
     install_code <- build_job_code(args)
-    job_name <- paste0("Installing '", main_library, "' version '", version, "'")
+    job_name <- paste0(
+      "Installing '",
+      main_library,
+      "' version '",
+      version,
+      "'"
+    )
     temp_file <- tempfile()
     writeLines(install_code, temp_file)
     invisible(
@@ -151,18 +160,19 @@ install_as_job <- function(
 }
 
 install_environment <- function(
-    main_library = NULL,
-    spark_method = NULL,
-    backend = NULL,
-    ml_version = NULL,
-    version = NULL,
-    envname = NULL,
-    python_version = NULL,
-    new_env = NULL,
-    method = c("auto", "virtualenv", "conda"),
-    install_ml = FALSE,
-    install_packages = NULL,
-    ...) {
+  main_library = NULL,
+  spark_method = NULL,
+  backend = NULL,
+  ml_version = NULL,
+  version = NULL,
+  envname = NULL,
+  python_version = NULL,
+  new_env = NULL,
+  method = c("auto", "virtualenv", "conda"),
+  install_ml = FALSE,
+  install_packages = NULL,
+  ...
+) {
   cli_div(theme = cli_colors())
   library_info <- python_library_info(main_library, version)
 
@@ -204,6 +214,7 @@ install_environment <- function(
     envname <- use_envname(
       backend = backend,
       version = ver_name,
+      main_library = main_library,
       ask_if_not_installed = FALSE,
       python_version = python_version
     )
@@ -234,16 +245,19 @@ install_environment <- function(
     }
     if (method %in% c("auto", "conda")) {
       conda <- list(...)$conda %||% "auto"
-      while (!inherits(
-        tryCatch(conda_python(envname, conda), error = identity),
-        "error"
-      )) {
+      while (
+        !inherits(
+          tryCatch(conda_python(envname, conda), error = identity),
+          "error"
+        )
+      ) {
         conda_remove(envname, conda = conda)
       }
     }
   }
-  if (new_env && method != "conda" &&
-    is.null(virtualenv_starter(python_version))) {
+  if (
+    new_env && method != "conda" && is.null(virtualenv_starter(python_version))
+  ) {
     cli_abort(c(
       paste0(
         "{.header Python version} {.emph '{python_number}'}",
@@ -289,7 +303,7 @@ install_environment <- function(
 #' as well as the 'Python' environment currently loaded.
 #' @export
 installed_components <- function(list_all = FALSE) {
-  pkgs <- py_list_packages()
+  pkgs <- py_list_packages(py_exe())
   db <- pkgs$package == "databricks-connect"
   ps <- pkgs$package == "pyspark"
   sel <- db | ps
@@ -300,26 +314,35 @@ installed_components <- function(list_all = FALSE) {
   }
   cli_div(theme = cli_colors())
   cli_h3("R packages")
-  cli_bullets(c("*" = "{.header {.code sparklyr} ({packageVersion('sparklyr')}})"))
-  cli_bullets(c("*" = "{.header {.code pysparklyr} ({packageVersion('pysparklyr')}})"))
-  cli_bullets(c("*" = "{.header {.code reticulate} ({packageVersion('reticulate')}})"))
+  cli_bullets(c(
+    "*" = "{.header {.code sparklyr} ({packageVersion('sparklyr')}})"
+  ))
+  cli_bullets(c(
+    "*" = "{.header {.code pysparklyr} ({packageVersion('pysparklyr')}})"
+  ))
+  cli_bullets(c(
+    "*" = "{.header {.code reticulate} ({packageVersion('reticulate')}})"
+  ))
   cli_h3("Python executable")
   cli_text("{.header {py_exe()}}")
   cli_h3("Python libraries")
   for (i in seq_len(nrow(new_pkgs))) {
     curr_row <- new_pkgs[i, ]
-    cli_bullets(c("*" = "{.header {curr_row$package} ({.header {curr_row$version}})}"))
+    cli_bullets(c(
+      "*" = "{.header {curr_row$package} ({.header {curr_row$version}})}"
+    ))
   }
   cli_end()
   invisible()
 }
 
 python_library_info <- function(
-    library_name,
-    library_version = NULL,
-    verbose = TRUE,
-    fail = TRUE,
-    timeout = 2) {
+  library_name,
+  library_version = NULL,
+  verbose = TRUE,
+  fail = TRUE,
+  timeout = 2
+) {
   msg_fail <- NULL
   msg_done <- NULL
   ret <- NULL
@@ -341,7 +364,9 @@ python_library_info <- function(
     # Not catastrophic, it will simply try to use the upstream name and version
     # provided by the user
     msg_fail <- "Failed to contact PyPi.org"
-    if (verbose) cli_progress_done(result = "failed")
+    if (verbose) {
+      cli_progress_done(result = "failed")
+    }
     ret <- NULL
   } else {
     if (!is.null(resp)) {
@@ -355,7 +380,9 @@ python_library_info <- function(
         # Quering PyPi again to see if at least the library name is valid
         resp2 <- query_pypi(library_name, timeout = timeout)
         if (!is.null(resp2)) {
-          msg_fail <- glue("Version '{library_version}' for '{library_name}' not found")
+          msg_fail <- glue(
+            "Version '{library_version}' for '{library_name}' not found"
+          )
           msg_abort <- c(
             "Version {.emph '{library_version}'} is not valid for {.emph '{library_name}'}",
             "i" = "{.header The most recent, valid, version is} {.emph '{resp2$info$version}'}"
@@ -390,10 +417,10 @@ query_pypi <- function(library_name, library_version = NULL, timeout) {
   resp <- try(
     {
       tryCatch(
-        url %>%
-          request() %>%
-          req_timeout(timeout) %>%
-          req_perform() %>%
+        url |>
+          request() |>
+          req_timeout(timeout) |>
+          req_perform() |>
           resp_body_json(),
         httr2_http_404 = function(cnd) NULL
       )
@@ -404,9 +431,12 @@ query_pypi <- function(library_name, library_version = NULL, timeout) {
 }
 
 version_prep <- function(version) {
+  if (version == "latest") {
+    return(version)
+  }
   version <- as.character(version)
-  ver <- version %>%
-    strsplit("\\.") %>%
+  ver <- version |>
+    strsplit("\\.") |>
     unlist()
 
   ver_name <- NULL
@@ -449,18 +479,20 @@ check_interactive <- function() interactive()
 build_job_code <- function(args) {
   args$as_job <- NULL
   args$method <- args$method[[1]]
-  arg_list <- args %>%
-    imap(~ {
+  arg_list <- args |>
+    imap(\(.x, .y) {
       if (inherits(.x, "character")) {
         x <- paste0("\"", .x, "\"")
       } else {
         x <- .x
       }
       paste0(.y, " = ", x)
-    }) %>%
-    as.character() %>%
+    }) |>
+    as.character() |>
     paste0(collapse = ", ")
   paste0(
-    "pysparklyr:::install_environment(", arg_list, ")"
+    "pysparklyr:::install_environment(",
+    arg_list,
+    ")"
   )
 }

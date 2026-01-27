@@ -30,51 +30,51 @@ databricks_token <- function(token = NULL, fail = FALSE) {
   # if token provided, return
   # otherwise, search for token:
   # DATABRICKS_TOKEN > CONNECT_DATABRICKS_TOKEN > .rs.api.getDatabricksToken
-
   if (!is.null(token)) {
     return(set_names(token, "argument"))
   }
-  # Checks the Environment Variable
-  if (is.null(token)) {
-    env_token <- Sys.getenv("DATABRICKS_TOKEN", unset = NA)
-    connect_token <- Sys.getenv("CONNECT_DATABRICKS_TOKEN", unset = NA)
-    if (!is.na(env_token)) {
-      token <- set_names(env_token, "environment")
-    } else {
-      if (!is.na(connect_token)) {
-        token <- set_names(connect_token, "environment_connect")
-      }
-    }
+  # Checks the Environment Variables
+  env_token <- Sys.getenv("DATABRICKS_TOKEN", unset = NA)
+  if (!is.na(env_token)) {
+    return(set_names(env_token, "environment"))
   }
-  # Checks for OAuth Databricks token inside the RStudio API
-  if (is.null(token) && exists(".rs.api.getDatabricksToken")) {
-    getDatabricksToken <- get(".rs.api.getDatabricksToken")
-    token <- set_names(getDatabricksToken(databricks_host()), "oauth")
+  connect_token <- Sys.getenv("CONNECT_DATABRICKS_TOKEN", unset = NA)
+  if (!is.na(connect_token)) {
+    return(set_names(connect_token, "environment_connect"))
   }
-  if (is.null(token)) {
-    if (fail) {
-      rlang::abort(c(
-        paste0(
-          "No authentication token was identified: \n",
-          " - No 'DATABRICKS_TOKEN' environment variable found \n",
-          " - Not passed as a function argument"
-        ),
-        "Please add your Token to 'DATABRICKS_TOKEN' inside your .Renviron file."
-      ))
-    } else {
-      token <- ""
-    }
+
+  # Checks for OAuth Databricks token inside the Workbench configuration file
+  wb_token <- workbench_databricks_token()
+  if (!is.null(wb_token)) {
+    return(set_names(wb_token, "workbench"))
   }
-  token
+
+  # Checks for Posit Connect OAuth
+  if (has_viewer_token(databricks_host())) {
+    return(set_names(connect_viewer_token(databricks_host()), "viewer"))
+  }
+
+  if (fail) {
+    rlang::abort(c(
+      paste0(
+        "No authentication token was identified: \n",
+        " - No 'DATABRICKS_TOKEN' environment variable found \n",
+        " - Not passed as a function argument"
+      ),
+      "Please add your Token to 'DATABRICKS_TOKEN' inside your .Renviron file."
+    ))
+  }
+  return(NULL)
 }
 
 databricks_sdk_client <- function(
-    sdk,
-    host,
-    token,
-    serverless = FALSE,
-    cluster_id = NULL,
-    profile = NULL) {
+  sdk,
+  host,
+  token,
+  serverless = FALSE,
+  cluster_id = NULL,
+  profile = NULL
+) {
   # SDK behaviour
   # https://databricks-sdk-py.readthedocs.io/en/latest/authentication.html#default-authentication-flow
   if (token == "") {
@@ -104,11 +104,12 @@ databricks_sdk_client <- function(
 }
 
 databricks_dbr_version_name <- function(
-    cluster_id,
-    client = NULL,
-    host = NULL,
-    token = NULL,
-    silent = FALSE) {
+  cluster_id,
+  client = NULL,
+  host = NULL,
+  token = NULL,
+  silent = FALSE
+) {
   bullets <- NULL
   version <- NULL
   cluster_info <- databricks_dbr_info(
@@ -137,11 +138,12 @@ databricks_extract_version <- function(x) {
 }
 
 databricks_dbr_info <- function(
-    cluster_id,
-    client = NULL,
-    host = NULL,
-    token = NULL,
-    silent = FALSE) {
+  cluster_id,
+  client = NULL,
+  host = NULL,
+  token = NULL,
+  silent = FALSE
+) {
   cli_div(theme = cli_colors())
 
   if (!silent) {
@@ -181,7 +183,9 @@ databricks_dbr_info <- function(
     if (as.character(substr(out, 1, 26)) == "Error in req_perform(.) : ") {
       out <- substr(out, 27, nchar(out))
     }
-    if (!silent) cli_progress_done(result = "failed")
+    if (!silent) {
+      cli_progress_done(result = "failed")
+    }
     cli_abort(
       c(
         "{.header Connection with Databricks failed: }\"{trimws(out)}\"",
@@ -195,16 +199,19 @@ databricks_dbr_info <- function(
   } else {
     version <- databricks_extract_version(out)
   }
-  if (!silent) cli_progress_done()
+  if (!silent) {
+    cli_progress_done()
+  }
   cli_end()
   out
 }
 
 databricks_dbr_version <- function(
-    cluster_id,
-    client = NULL,
-    host = NULL,
-    token = NULL) {
+  cluster_id,
+  client = NULL,
+  host = NULL,
+  token = NULL
+) {
   vn <- databricks_dbr_version_name(
     cluster_id = cluster_id,
     client = client,
@@ -215,10 +222,11 @@ databricks_dbr_version <- function(
 }
 
 databricks_cluster_get <- function(
-    cluster_id,
-    client = NULL,
-    host = NULL,
-    token = NULL) {
+  cluster_id,
+  client = NULL,
+  host = NULL,
+  token = NULL
+) {
   if (!is.null(client)) {
     try(
       client$clusters$get(cluster_id = cluster_id)$as_dict(),
@@ -229,11 +237,11 @@ databricks_cluster_get <- function(
       paste0(
         host,
         "/api/2.0/clusters/get"
-      ) %>%
-        request() %>%
-        req_auth_bearer_token(token) %>%
-        req_body_json(list(cluster_id = cluster_id)) %>%
-        req_perform() %>%
+      ) |>
+        request() |>
+        req_auth_bearer_token(token) |>
+        req_body_json(list(cluster_id = cluster_id)) |>
+        req_perform() |>
         resp_body_json(),
       silent = TRUE
     )
@@ -241,9 +249,9 @@ databricks_cluster_get <- function(
 }
 
 databricks_dbr_error <- function(error) {
-  error_split <- error %>%
-    as.character() %>%
-    strsplit("\n\t") %>%
+  error_split <- error |>
+    as.character() |>
+    strsplit("\n\t") |>
     unlist()
 
   error_start <- substr(error_split, 1, 9)
@@ -359,4 +367,30 @@ allowed_serverless_configs <- function() {
     "spark.sql.shuffle.partitions",
     "spark.sql.ansi.enabled"
   )
+}
+
+workbench_databricks_token <- function(host, cfg_file) {
+  if (missing(host)) {
+    host <- databricks_host(fail = FALSE)
+  }
+  if (missing(cfg_file)) {
+    cfg_file <- Sys.getenv("DATABRICKS_CONFIG_FILE")
+    if (!grepl("posit-workbench", cfg_file, fixed = TRUE)) {
+      return(NULL)
+    }
+  }
+  cfg <- readLines(cfg_file)
+  # We don't attempt a full parse of the INI syntax supported by Databricks
+  # config files, instead relying on the fact that this particular file will
+  # always contain only one section.
+  if (!any(grepl(host, cfg, fixed = TRUE))) {
+    # The configuration doesn't actually apply to this host.
+    return(NULL)
+  }
+  line <- grepl("token = ", cfg, fixed = TRUE)
+  token <- gsub("token = ", "", cfg[line])
+  if (nchar(token) == 0) {
+    return(NULL)
+  }
+  token
 }

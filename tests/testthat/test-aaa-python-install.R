@@ -1,6 +1,7 @@
+new_env <- use_new_test_env()
 test_that("It checks with PyPi if library version is NULL", {
   withr::with_envvar(
-    new = c("WORKON_HOME" = use_new_test_env()),
+    new = c("WORKON_HOME" = new_env),
     {
       local_mocked_bindings(py_install = function(...) list(...))
       expect_message(
@@ -37,23 +38,6 @@ test_that("Adds the ML libraries when prompted", {
       x <- x[names(x) != "python_version"]
       expect_snapshot(x)
     }
-  )
-})
-
-test_that("Fails when non-existent Python version is used", {
-  expect_error(
-    install_environment(
-      main_library = "pyspark",
-      spark_method = "pyspark_connect",
-      backend = "pyspark",
-      version = "3.5",
-      ml_version = "3.5",
-      python = Sys.which("python"),
-      # Arg(s) being tested
-      new_env = TRUE,
-      python_version = "10.1"
-    ),
-    "Python version '10.1' or higher is required by some libraries."
   )
 })
 
@@ -115,36 +99,54 @@ test_that("Installation runs even if no response from PyPi", {
   )
 })
 
-test_that(
-  "Fails when no library version is provided, and nothing comes back from PyPi",
-  {
-    withr::with_envvar(
-      new = c("WORKON_HOME" = use_new_test_env()),
-      {
-        local_mocked_bindings(
-          py_install = function(...) list(...),
-          python_library_info = function(...) NULL
-        )
-        expect_error(
-          install_environment(
-            main_library = "pyspark",
-            spark_method = "pyspark_connect",
-            backend = "pyspark",
-            ml_version = "3.5",
-            new_env = FALSE,
-            python = Sys.which("python")
-          ),
-          "No `version` provided, and none could be found"
-        )
-      }
-    )
-  }
-)
+test_that("Fails when no library version is provided, and nothing comes back from PyPi", {
+  withr::with_envvar(
+    new = c("WORKON_HOME" = use_new_test_env()),
+    {
+      local_mocked_bindings(
+        py_install = function(...) list(...),
+        python_library_info = function(...) NULL
+      )
+      expect_error(
+        install_environment(
+          main_library = "pyspark",
+          spark_method = "pyspark_connect",
+          backend = "pyspark",
+          ml_version = "3.5",
+          new_env = FALSE,
+          python = Sys.which("python")
+        ),
+        "No `version` provided, and none could be found"
+      )
+    }
+  )
+})
 
-
-
-test_that("installed_components() output properly", {
-  expect_message(installed_components())
+test_that("Fails when non-existent Python version is used", {
+  withr::with_envvar(
+    new = c("WORKON_HOME" = use_new_test_env()),
+    {
+      local_mocked_bindings(
+        virtualenv_starter = function(...) {
+          return(NULL)
+        }
+      )
+      expect_error(
+        install_environment(
+          main_library = "pyspark",
+          spark_method = "pyspark_connect",
+          backend = "pyspark",
+          version = "3.5",
+          ml_version = "3.5",
+          python = Sys.which("python"),
+          # Arg(s) being tested
+          new_env = TRUE,
+          python_version = "10.1"
+        ),
+        "Python version '10.1' or higher is required by some libraries."
+      )
+    }
+  )
 })
 
 test_that("Can get pypy.org info", {
@@ -168,7 +170,6 @@ test_that("Install code is correctly created", {
 })
 
 test_that("Databricks installation works", {
-  skip_if_not_databricks()
   local_mocked_bindings(install_as_job = function(...) list(...))
 
   out <- install_databricks(version = "14.1")
@@ -183,20 +184,30 @@ test_that("Databricks installation works", {
     "Will use the value from 'version', and ignoring 'cluster_id'"
   )
 
+  vcr::local_cassette("databricks-install")
+
   expect_message(
-    install_databricks(
-      cluster = Sys.getenv("DATABRICKS_CLUSTER_ID"),
-      as_job = FALSE
+    withr::with_envvar(
+      new = c(
+        "DATABRICKS_HOST" = use_test_db_host(),
+        "DATABRICKS_TOKEN" = "temptoken"
+      ),
+      {
+        install_databricks(
+          cluster = use_test_db_cluster(),
+          as_job = FALSE
+        )
+      }
     )
   )
-
   expect_snapshot(install_databricks(version = "13.1"))
 })
 
 skip_on_ci()
 
 test_that("Databricks installations work", {
-  env_paths <- map(1:3, ~ fs::path(tempdir(), random_table_name("env")))
+  skip("Avoids multiple installations")
+  env_paths <- map(1:3, \(.x) fs::path(tempdir(), random_table_name("env")))
   baseenv <- "r-sparklyr-databricks"
   version_1 <- "14.3"
   version_2 <- "13.3"

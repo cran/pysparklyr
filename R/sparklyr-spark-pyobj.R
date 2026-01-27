@@ -16,9 +16,9 @@ print.spark_pyobj <- function(x, ...) {
 
 #' @export
 sdf_read_column.spark_pyjobj <- function(x, column) {
-  col_df <- x %>%
-    spark_dataframe() %>%
-    invoke("select", column) %>%
+  col_df <- x |>
+    spark_dataframe() |>
+    invoke("select", column) |>
     collect()
 
   col_df[[column]]
@@ -31,7 +31,7 @@ spark_version.spark_pyobj <- function(sc) {
 
 #' @export
 spark_connection.spark_pyobj <- function(x, ...) {
-  x$connection
+  x[["connection"]]
 }
 
 #' @export
@@ -55,3 +55,17 @@ as_spark_pyobj <- function(obj, conn, class = NULL) {
   )
 }
 setOldClass(c("spark_pyobj", "spark_jobj"))
+
+get_spark_pyobj <- function(obj) {
+  if (inherits(obj, "spark_pyobj")) {
+    return(obj)
+  }
+  out <- obj[[".jobj"]]
+  if (is.null(out)) {
+    out <- obj[["pipeline"]]
+  }
+  if (is.null(out)) {
+    stop("No `spark_pyobj` found")
+  }
+  out
+}

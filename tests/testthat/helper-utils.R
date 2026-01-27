@@ -10,8 +10,8 @@ expect_same_remote_result <- function(.data, pipeline) {
   local <- pipeline(.data)
 
   remote <- try(
-    spark_data %>%
-      pipeline() %>%
+    spark_data |>
+      pipeline() |>
       collect()
   )
 
@@ -29,7 +29,9 @@ testthat_tbl <- function(name, data = NULL, repartition = 0L) {
 
   tbl <- tryCatch(dplyr::tbl(sc, name), error = identity)
   if (inherits(tbl, "error")) {
-    if (is.null(data)) data <- eval(as.name(name), envir = parent.frame())
+    if (is.null(data)) {
+      data <- eval(as.name(name), envir = parent.frame())
+    }
     tbl <- dplyr::copy_to(sc, data, name = name, repartition = repartition)
   }
 
@@ -46,7 +48,16 @@ skip_spark_min_version <- function(version) {
   sp_version <- spark_version(sc)
   comp_ver <- compareVersion(as.character(version), sp_version)
   if (comp_ver != -1) {
-    skip(glue("Skips on Spark version {version}"))
+    skip(glue("Skips on Spark version {sp_version}"))
+  }
+}
+
+skip_spark_max_version <- function(version) {
+  sc <- use_test_spark_connect()
+  sp_version <- spark_version(sc)
+  comp_ver <- compareVersion(as.character(version), sp_version)
+  if (comp_ver != 1) {
+    skip(glue("Skips on Spark version {sp_version}"))
   }
 }
 
@@ -78,7 +89,8 @@ tests_disable_all <- function() {
   r_scripts <- dir_ls(test_path(), glob = "*.R")
   test_scripts <- r_scripts[substr(path_file(r_scripts), 1, 5) == "test-"]
   map(
-    test_scripts, ~ {
+    test_scripts,
+    \(.x) {
       ln <- readLines(.x)
       writeLines(c("skip(\"temp\")", ln), con = .x)
     }
@@ -89,7 +101,8 @@ tests_enable_all <- function() {
   r_scripts <- dir_ls(test_path(), glob = "*.R")
   test_scripts <- r_scripts[substr(path_file(r_scripts), 1, 5) == "test-"]
   map(
-    test_scripts, ~ {
+    test_scripts,
+    \(.x) {
       ln <- readLines(.x)
       new_ln <- ln[ln != "skip(\"temp\")"]
       writeLines(new_ln, con = .x)
@@ -103,11 +116,17 @@ test_databricks_cluster_id <- function() {
 
 test_databricks_cluster_version <- function() {
   if (is.null(.test_env$dbr)) {
-    dbr <- databricks_dbr_version(
-      cluster_id = test_databricks_cluster_id(),
-      host = databricks_host(),
-      token = databricks_token()
+    dbr <- try(
+      databricks_dbr_version(
+        cluster_id = test_databricks_cluster_id(),
+        host = databricks_host(),
+        token = databricks_token()
+      ),
+      silent = TRUE
     )
+    if (inherits(dbr, "try-error")) {
+      dbr <- "99.9"
+    }
     .test_env$dbr <- dbr
   }
   .test_env$dbr
@@ -116,15 +135,15 @@ test_databricks_cluster_version <- function() {
 test_databricks_stump_env <- function() {
   env_name <- use_envname(
     version = test_databricks_cluster_version(),
-    backend = "databricks"
+    backend = "databricks",
+    main_library = "databricks-connect"
   )
   env_path <- path(use_test_env(), env_name)
   if (names(env_name) != "exact") {
     py_install(
       package = "numpy",
       envname = env_path,
-      pip = TRUE,
-      python = Sys.which("python")
+      pip = TRUE
     )
   }
   path(env_path, "bin", "python")

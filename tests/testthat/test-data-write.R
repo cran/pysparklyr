@@ -2,8 +2,8 @@ test_that("Write text works", {
   sc <- use_test_spark_connect()
   tbl_mtcars <- use_test_table_mtcars()
   file_name <- tempfile()
-  text_tbl <- tbl_mtcars %>%
-    mutate(x = as.character(mpg)) %>%
+  text_tbl <- tbl_mtcars |>
+    mutate(x = as.character(mpg)) |>
     select(x)
   expect_silent(spark_write_text(text_tbl, file_name, overwrite = ))
   expect_s3_class(spark_read_text(sc, file_name), "tbl_pyspark")
@@ -12,7 +12,7 @@ test_that("Write text works", {
 test_that("Write table works", {
   tbl_mtcars <- use_test_table_mtcars()
   expect_silent(
-    spark_write_table(tbl_mtcars, "new_mtcars")
+    spark_write_table(tbl_mtcars, random_table_name("mtcars"))
   )
   if (dir_exists(test_path("spark-warehouse"))) {
     dir_delete(test_path("spark-warehouse"))

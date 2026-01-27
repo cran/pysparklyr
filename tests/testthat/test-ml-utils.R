@@ -18,9 +18,14 @@ test_that("ml_connect_not_supported() works", {
     ml_connect_not_supported(
       args = list(),
       not_supported = c(
-        "elastic_net_param", "reg_param", "threshold",
-        "aggregation_depth", "fit_intercept",
-        "raw_prediction_col", "uid", "weight_col"
+        "elastic_net_param",
+        "reg_param",
+        "threshold",
+        "aggregation_depth",
+        "fit_intercept",
+        "raw_prediction_col",
+        "uid",
+        "weight_col"
       )
     )
   )
@@ -29,9 +34,14 @@ test_that("ml_connect_not_supported() works", {
     ml_connect_not_supported(
       args = list(reg_param = 1),
       not_supported = c(
-        "elastic_net_param", "reg_param", "threshold",
-        "aggregation_depth", "fit_intercept",
-        "raw_prediction_col", "uid", "weight_col"
+        "elastic_net_param",
+        "reg_param",
+        "threshold",
+        "aggregation_depth",
+        "fit_intercept",
+        "raw_prediction_col",
+        "uid",
+        "weight_col"
       ),
       "The following argument(s) are not supported by Spark Connect:"
     )
@@ -40,8 +50,8 @@ test_that("ml_connect_not_supported() works", {
 
 test_that("ml_installed() works on simulated interactive session", {
   skip_if_not_databricks()
-  test_env <- test_databricks_stump_env() %>%
-    path_dir() %>%
+  test_env <- test_databricks_stump_env() |>
+    path_dir() |>
     path_dir()
   print(test_env)
   local_mocked_bindings(

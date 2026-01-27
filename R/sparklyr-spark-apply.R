@@ -1,19 +1,20 @@
 #' @export
 spark_apply.tbl_pyspark <- function(
-    x,
-    f,
-    columns = NULL,
-    memory = TRUE,
-    group_by = NULL,
-    packages = NULL,
-    context = NULL,
-    name = NULL,
-    barrier = NULL,
-    fetch_result_as_sdf = TRUE,
-    partition_index_param = "",
-    arrow_max_records_per_batch = NULL,
-    auto_deps = FALSE,
-    ...) {
+  x,
+  f,
+  columns = NULL,
+  memory = TRUE,
+  group_by = NULL,
+  packages = NULL,
+  context = NULL,
+  name = NULL,
+  barrier = NULL,
+  fetch_result_as_sdf = TRUE,
+  partition_index_param = "",
+  arrow_max_records_per_batch = NULL,
+  auto_deps = FALSE,
+  ...
+) {
   rpy2_installed()
   cli_div(theme = cli_colors())
   if (!is.null(packages)) {
@@ -63,30 +64,31 @@ spark_apply.tbl_pyspark <- function(
 }
 
 sa_in_pandas <- function(
-    x,
-    .f,
-    ...,
-    .schema = NULL,
-    .schema_arg = "columns",
-    .group_by = NULL,
-    .as_sdf = TRUE,
-    .name = NULL,
-    .context = NULL,
-    .barrier = NULL) {
+  x,
+  .f,
+  ...,
+  .schema = NULL,
+  .schema_arg = "columns",
+  .group_by = NULL,
+  .as_sdf = TRUE,
+  .name = NULL,
+  .context = NULL,
+  .barrier = NULL
+) {
   schema_msg <- FALSE
   if (is.null(.schema)) {
-    r_fn <- .f %>%
+    r_fn <- .f |>
       sa_function_to_string(
         .r_only = TRUE,
         .group_by = .group_by,
         .colnames = NULL,
         .context = .context,
         ... = ...
-      ) %>%
-      rlang::parse_expr() %>%
+      ) |>
+      rlang::parse_expr() |>
       eval()
-    r_df <- x %>%
-      head(10) %>%
+    r_df <- x |>
+      head(10) |>
       collect()
     if (is.null(.context)) {
       r_exec <- r_fn(r_df)
@@ -97,35 +99,43 @@ sa_in_pandas <- function(
     col_names <- colnames(r_exec)
     col_names <- gsub("\\.", "_", col_names)
     colnames(r_exec) <- col_names
-    .schema <- r_exec %>%
-      imap(~ {
+    .schema <- r_exec |>
+      imap(\(.x, .y) {
         x_class <- class(.x)
-        if ("POSIXt" %in% x_class) x_class <- "timestamp"
-        if (x_class == "character") x_class <- "string"
-        if (x_class == "numeric") x_class <- "double"
-        if (x_class == "integer") x_class <- "long"
+        if ("POSIXt" %in% x_class) {
+          x_class <- "timestamp"
+        }
+        if (x_class == "character") {
+          x_class <- "string"
+        }
+        if (x_class == "numeric") {
+          x_class <- "double"
+        }
+        if (x_class == "integer") {
+          x_class <- "long"
+        }
         paste0(.y, " ", x_class)
-      }) %>%
+      }) |>
       paste0(collapse = ", ")
     schema_msg <- TRUE
   } else {
     fields <- unlist(strsplit(.schema, ","))
-    col_names <- map_chr(fields, ~ unlist(strsplit(trimws(.x), " "))[[1]])
+    col_names <- map_chr(fields, \(.x) unlist(strsplit(trimws(.x), " "))[[1]])
     col_names <- gsub("\\.", "_", col_names)
   }
-  .f %>%
+  .f |>
     sa_function_to_string(
       .group_by = .group_by,
       .colnames = col_names,
       .context = .context,
       ... = ...
-    ) %>%
+    ) |>
     py_run_string()
   main <- reticulate::import_main()
   df <- python_sdf(x)
   if (is.null(df)) {
-    df <- x %>%
-      compute() %>%
+    df <- x |>
+      compute() |>
       python_sdf()
   }
   if (!is.null(.group_by)) {
@@ -174,12 +184,13 @@ sa_in_pandas <- function(
 }
 
 sa_function_to_string <- function(
-    .f,
-    .group_by = NULL,
-    .r_only = FALSE,
-    .colnames = NULL,
-    .context = NULL,
-    ...) {
+  .f,
+  .group_by = NULL,
+  .r_only = FALSE,
+  .colnames = NULL,
+  .context = NULL,
+  ...
+) {
   path_scripts <- system.file("udf", package = "pysparklyr")
   # path_scripts <- "inst/udf"
   if (dir_exists("inst/udf")) {
@@ -214,7 +225,7 @@ sa_function_to_string <- function(
     paste0("col_names <- c(", .colnames, ")"),
     fn_r
   )
-  fn <- purrr::as_mapper(.f = .f, ... = ...)
+  fn <- as_mapper(.f = .f, ... = ...)
   fn_str <- paste0(deparse(fn), collapse = "\n")
   if (inherits(fn, "rlang_lambda_function")) {
     fn_str <- paste0(

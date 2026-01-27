@@ -1,9 +1,9 @@
 ml_formula <- function(f, data) {
   col_data <- colnames(data)
 
-  temp_tbl <- rep(1, times = length(col_data)) %>%
-    purrr::set_names(col_data) %>%
-    as.list() %>%
+  temp_tbl <- rep(1, times = length(col_data)) |>
+    set_names(col_data) |>
+    as.list() |>
     as.data.frame()
 
   f_terms <- terms(f, data = temp_tbl)
@@ -16,10 +16,13 @@ ml_formula <- function(f, data) {
   for (i in feat_names) {
     in_data <- i %in% col_data
     if (!in_data) {
-      cli_abort(c(
-        "Formula resulted in an invalid parameter set\n",
-        "- Only '+' is supported."
-      ), call = NULL)
+      cli_abort(
+        c(
+          "Formula resulted in an invalid parameter set\n",
+          "- Only '+' is supported."
+        ),
+        call = NULL
+      )
     }
   }
 
@@ -38,19 +41,23 @@ ml_formula <- function(f, data) {
 snake_to_camel <- function(x) {
   s <- unlist(strsplit(x, "_"))
   x <- paste(
-    toupper(substring(s, 1, 1)), substring(s, 2),
-    sep = "", collapse = ""
+    toupper(substring(s, 1, 1)),
+    substring(s, 2),
+    sep = "",
+    collapse = ""
   )
   paste(
-    tolower(substring(x, 1, 1)), substring(x, 2),
-    sep = "", collapse = ""
+    tolower(substring(x, 1, 1)),
+    substring(x, 2),
+    sep = "",
+    collapse = ""
   )
 }
 
 ml_connect_not_supported <- function(args, not_supported = c()) {
   x <- map(
     not_supported,
-    ~ {
+    \(.x) {
       if (.x %in% names(args)) {
         arg <- args[names(args) == .x]
         if (!is.null(arg[[1]])) {
@@ -60,8 +67,8 @@ ml_connect_not_supported <- function(args, not_supported = c()) {
         }
       }
     }
-  ) %>%
-    discard(is.null) %>%
+  ) |>
+    discard(is.null) |>
     as.character()
 
   x <- x[x != ""]
@@ -75,19 +82,18 @@ ml_connect_not_supported <- function(args, not_supported = c()) {
   }
 }
 
-ml_execute <- function(args, python_library, fn) {
+ml_execute <- function(args, python_library, fn, sc) {
   py_lib <- import(python_library)
 
   # Removes any variable with a "." prefix
   args <- args[substr(names(args), 1, 1) != "."]
 
   args$x <- NULL
-  args$formula <- NULL
 
   args <- discard(args, is.null)
 
-  new_names <- args %>%
-    names() %>%
+  new_names <- args |>
+    names() |>
     map_chr(snake_to_camel)
 
   new_args <- set_names(args, new_names)
@@ -99,26 +105,26 @@ ml_execute <- function(args, python_library, fn) {
     )
   )
 
-  jobj
+  as_spark_pyobj(jobj, sc)
 }
 
 get_params <- function(x) {
   py_model <- python_obj_get(x)
   m_params <- py_model$params
   m_map <- py_model$extractParamMap()
-  m_map_names <- m_map %>%
-    names() %>%
-    strsplit("__") %>%
-    map(~ .x[[2]]) %>%
-    as.character() %>%
+  m_map_names <- m_map |>
+    names() |>
+    strsplit("__") |>
+    map(\(.x) .x[[2]]) |>
+    as.character() |>
     sort()
 
-  m_param_names <- m_params %>%
-    map(~ .x$name) %>%
+  m_param_names <- m_params |>
+    map(\(.x) .x$name) |>
     as.character()
 
-  m_map_names %>%
-    map(~ {
+  m_map_names |>
+    map(\(.x) {
       c_param_name <- m_params[which(.x == m_param_names)]
       c_map_name <- m_map[which(.x == m_map_names)]
       list(
@@ -135,4 +141,33 @@ ml_installed <- function(envname = NULL) {
     libraries = pysparklyr_env$ml_libraries,
     msg = "Required Python libraries to run ML functions are missing"
   )
+}
+
+ml_get_params <- function(x) {
+  py_x <- get_spark_pyobj(x)
+  params <- invoke(py_x, "params")
+  params |>
+    map(\(.x) {
+      nm <- .x$name
+      nm <- paste0("get", toupper(substr(nm, 1, 1)), substr(nm, 2, nchar(nm)))
+      tr <- try(invoke(py_x, nm), silent = TRUE)
+      if (inherits(tr, "spark_pyobj")) {
+        tr <- tr |>
+          python_obj_get() |>
+          py_to_r()
+      }
+      out <- ifelse(inherits(tr, "try-error"), list(), list(tr))
+      set_names(out, .x$name)
+    }) |>
+    flatten() |>
+    discard(is.null)
+}
+
+#' @export
+print.ml_connect_estimator <- function(x, ...) {
+  pyobj <- python_obj_get(x)
+  msg <- ml_get_last_item(class(pyobj)[[1]])
+  cli_div(theme = cli_colors())
+  cli_inform("<{.header {msg}}>")
+  cli_end()
 }

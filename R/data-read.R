@@ -1,21 +1,22 @@
 #' @export
 spark_read_csv.pyspark_connection <- function(
-    sc,
-    name = NULL,
-    path = name,
-    header = TRUE,
-    columns = NULL,
-    infer_schema = is.null(columns),
-    delimiter = ",",
-    quote = "\"",
-    escape = "\\",
-    charset = "UTF-8",
-    null_value = NULL,
-    options = list(),
-    repartition = 0,
-    memory = TRUE,
-    overwrite = TRUE,
-    ...) {
+  sc,
+  name = NULL,
+  path = name,
+  header = TRUE,
+  columns = NULL,
+  infer_schema = is.null(columns),
+  delimiter = ",",
+  quote = "\"",
+  escape = "\\",
+  charset = "UTF-8",
+  null_value = NULL,
+  options = list(),
+  repartition = 0,
+  memory = TRUE,
+  overwrite = TRUE,
+  ...
+) {
   pyspark_read_generic(
     sc = sc,
     path = path,
@@ -40,15 +41,16 @@ spark_read_csv.pyspark_connection <- function(
 
 #' @export
 spark_read_text.pyspark_connection <- function(
-    sc,
-    name = NULL,
-    path = name,
-    repartition = 0,
-    memory = TRUE,
-    overwrite = TRUE,
-    options = list(),
-    whole = FALSE,
-    ...) {
+  sc,
+  name = NULL,
+  path = name,
+  repartition = 0,
+  memory = TRUE,
+  overwrite = TRUE,
+  options = list(),
+  whole = FALSE,
+  ...
+) {
   pyspark_read_generic(
     sc = sc,
     path = path,
@@ -66,15 +68,16 @@ spark_read_text.pyspark_connection <- function(
 
 #' @export
 spark_read_json.pyspark_connection <- function(
-    sc,
-    name = NULL,
-    path = name,
-    options = list(),
-    repartition = 0,
-    memory = TRUE,
-    overwrite = TRUE,
-    columns = NULL,
-    ...) {
+  sc,
+  name = NULL,
+  path = name,
+  options = list(),
+  repartition = 0,
+  memory = TRUE,
+  overwrite = TRUE,
+  columns = NULL,
+  ...
+) {
   pyspark_read_generic(
     sc = sc,
     path = path,
@@ -92,16 +95,17 @@ spark_read_json.pyspark_connection <- function(
 
 #' @export
 spark_read_orc.pyspark_connection <- function(
-    sc,
-    name = NULL,
-    path = name,
-    options = list(),
-    repartition = 0,
-    memory = TRUE,
-    overwrite = TRUE,
-    columns = NULL,
-    schema = NULL,
-    ...) {
+  sc,
+  name = NULL,
+  path = name,
+  options = list(),
+  repartition = 0,
+  memory = TRUE,
+  overwrite = TRUE,
+  columns = NULL,
+  schema = NULL,
+  ...
+) {
   pyspark_read_generic(
     sc = sc,
     path = path,
@@ -120,21 +124,26 @@ spark_read_orc.pyspark_connection <- function(
 
 #' @export
 spark_read_parquet.pyspark_connection <- function(
-    sc,
-    name = NULL,
-    path = name,
-    options = list(),
-    repartition = 0,
-    memory = TRUE,
-    overwrite = TRUE,
-    columns = NULL,
-    schema = NULL,
-    ...) {
+  sc,
+  name = NULL,
+  path = name,
+  options = list(),
+  repartition = 0,
+  memory = TRUE,
+  overwrite = TRUE,
+  columns = NULL,
+  schema = NULL,
+  ...
+) {
   con <- python_conn(sc)
 
   new_schema <- NULL
-  if (!is.null(columns)) new_schema <- columns
-  if (!is.null(schema)) new_schema <- schema
+  if (!is.null(columns)) {
+    new_schema <- columns
+  }
+  if (!is.null(schema)) {
+    new_schema <- schema
+  }
   if (!is.null(new_schema)) {
     sch <- con$read$schema(new_schema)
     read <- sch$parquet(path)
@@ -157,8 +166,18 @@ spark_read_parquet.pyspark_connection <- function(
 }
 
 
-pyspark_read_generic <- function(sc, path, name, format, memory, repartition,
-                                 overwrite, args, options = list(), py_obj = NULL) {
+pyspark_read_generic <- function(
+  sc,
+  path,
+  name,
+  format,
+  memory,
+  repartition,
+  overwrite,
+  args,
+  options = list(),
+  py_obj = NULL
+) {
   opts <- c(args, options)
   rename_fields <- FALSE
   schema <- args$schema
@@ -171,8 +190,8 @@ pyspark_read_generic <- function(sc, path, name, format, memory, repartition,
   }
 
   if (is.null(py_obj)) {
-    x <- python_conn(sc)$read %>%
-      py_invoke_options(options = opts) %>%
+    x <- python_conn(sc)$read |>
+      py_invoke_options(options = opts) |>
       py_invoke(format, path_expand(path))
   } else {
     x <- py_obj
@@ -208,8 +227,8 @@ pyspark_read_generic <- function(sc, path, name, format, memory, repartition,
       x$persist(storage_level$StorageLevel$MEMORY_AND_DISK)
       out <- tbl(sc, name)
     } else {
-      out <- x %>%
-        tbl_pyspark_temp(sc) %>%
+      out <- x |>
+        tbl_pyspark_temp(sc) |>
         cache_query(name = name)
     }
   } else {
@@ -222,8 +241,8 @@ pyspark_read_generic <- function(sc, path, name, format, memory, repartition,
 }
 
 gen_sdf_name <- function(path) {
-  x <- path %>%
-    path_file() %>%
+  x <- path |>
+    path_file() |>
     path_ext_remove()
 
   random_string(gsub("[[:punct:]]", "", x))

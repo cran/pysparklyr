@@ -8,16 +8,21 @@ test_that("DBR error code returns as expected", {
     " created_time:'2023-10-02T12:14:52.379226-05:00'}'\n>')"
   )
 
-  expect_snapshot_error(databricks_dbr_error(error))
+  expect_snapshot(databricks_dbr_error(error), error = TRUE)
 
-  expect_snapshot_error(databricks_dbr_error(""))
+  expect_snapshot(databricks_dbr_error(""), error = TRUE)
 })
 
-skip_if_not_databricks()
-
 test_that("Databricks Host works", {
-  expect_true(nchar(databricks_host()) > 5)
-
+  expect_named(
+    withr::with_envvar(
+      new = c("DATABRICKS_HOST" = "test"),
+      {
+        databricks_host()
+      }
+    ),
+    "environment"
+  )
   expect_named(databricks_host("thisisatest"), "argument")
 
   expect_error(
@@ -42,7 +47,15 @@ test_that("Databricks Host works", {
 })
 
 test_that("Databricks Token works", {
-  expect_true(nchar(databricks_token()) > 5)
+  expect_named(
+    withr::with_envvar(
+      new = c("DATABRICKS_TOKEN" = "test"),
+      {
+        databricks_token()
+      }
+    ),
+    "environment"
+  )
 
   expect_named(databricks_token("thisisatest"), "argument")
 
@@ -68,18 +81,30 @@ test_that("Databricks Token works", {
 })
 
 test_that("Get cluster version", {
-  expect_message(
-    x <- databricks_dbr_version(
-      cluster_id = Sys.getenv("DATABRICKS_CLUSTER_ID", unset = NA),
-      host = databricks_host(),
-      token = databricks_token()
-    )
+  vcr::local_cassette("databricks-cluster-version")
+  expect_equal(
+    databricks_dbr_version(
+      host = use_test_db_host(),
+      token = "",
+      cluster_id = use_test_db_cluster()
+    ),
+    "17.3"
   )
-  expect_true(nchar(x) == 4)
 })
 
 test_that("Cluster info runs as expected", {
   expect_error(databricks_dbr_version(""))
+})
+
+test_that("Misc tests", {
+  expect_silent(databricks_desktop_login("xxxx", "xxxxx"))
+  expect_snapshot(allowed_serverless_configs())
+})
+
+test_that("DBR Python comes back as expected", {
+  expect_equal(databricks_dbr_python("17.0"), "3.12")
+  expect_equal(databricks_dbr_python("15.0"), "3.11")
+  expect_equal(databricks_dbr_python("14.0"), "3.10")
 })
 
 test_that("Host sanitation works", {
