@@ -1,9 +1,14 @@
-# pysparklyr 0.2.1
+# pysparklyr 0.2.2
 
 ### New
 
 - Adds support for `tune_grid_spark()`. It enables running a Tidymodels tune
 grid inside Spark Connect clusters.
+
+* Snowflake connections now support all native authenticators via the Snowflake
+  Python SDK, which also picks up on default credentials from Snowflake
+  `connections.toml` files. Viewer-based credentials on Posit Connect are now
+  supported, too (#181 - @atheriel).
 
 ### Improvements
 
@@ -18,6 +23,19 @@ version compatibility.
 version from PyPI.
 
 ### Fixes
+
+- Restores compatibility with sparklyr 1.9.5 / dbplyr 2.6.0, which restructured
+  the `tbl` source slot. Operations on a `tbl` (e.g. printing, `collect()`) no
+  longer fail with "no applicable method for 'invoke' applied to an object of
+  class 'c('spark_connection', 'DBIConnection')'". Two-table verbs such as
+  `left_join()` no longer error with "`x` and `y` must share the same source",
+  and the deprecated `dbplyr::as.sql()` call was replaced with `as_table_path()`
+  (#185). This raises the minimum requirements to `sparklyr` >= 1.9.5 and
+  `dbplyr` >= 2.6.0.
+
+- No longer emits spurious reticulate "After Python has initialized, only
+  `action = 'add'` ..." warnings when opening additional connections in a
+  session that uses an ephemeral (`uv`) Python environment.
 
 - Fixes conversion of Pandas NULL columns and date types (#178 - @tobiasdut)
 
